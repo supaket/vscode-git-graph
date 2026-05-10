@@ -32,6 +32,11 @@ class GitGraphView {
 
 	private moreCommitsAvailable: boolean = false;
 	private expandedCommit: ExpandedCommit | null = null;
+	private dragSelectStart: HTMLElement | null = null;
+	private dragSelectLast: HTMLElement | null = null;
+	private dragSelectMoved: boolean = false;
+	private rangeSelectionStartIdx: number | null = null;
+	private rangeSelectionEndIdx: number | null = null;
 	private maxCommits: number;
 	private scrollTop = 0;
 	private renderedGitBranchHead: string | null = null;
@@ -123,6 +128,7 @@ class GitGraphView {
 			this.currentBranches = prevState.currentBranches;
 			this.maxCommits = prevState.maxCommits;
 			this.expandedCommit = prevState.expandedCommit;
+			this.normaliseExpandedCommitDiffState();
 			this.avatars = prevState.avatars;
 			this.gitConfig = prevState.gitConfig;
 			this.loadRepoInfo(prevState.gitBranches, prevState.gitBranchHead, prevState.gitRemotes, prevState.gitStashes, true);
@@ -675,11 +681,15 @@ class GitGraphView {
 
 	public requestCommitComparison(hash: string, compareWithHash: string, refresh: boolean) {
 		let commitOrder = this.getCommitOrder(hash, compareWithHash);
+		this.requestCommitComparisonWithDiff(hash, compareWithHash, commitOrder.from, commitOrder.to, refresh);
+	}
+
+	private requestCommitComparisonWithDiff(hash: string, compareWithHash: string, fromHash: string, toHash: string, refresh: boolean) {
 		sendMessage({
 			command: 'compareCommits',
 			repo: this.currentRepo,
 			commitHash: hash, compareWithHash: compareWithHash,
-			fromHash: commitOrder.from, toHash: commitOrder.to,
+			fromHash: fromHash, toHash: toHash,
 			refresh: refresh
 		});
 	}
@@ -748,6 +758,8 @@ class GitGraphView {
 			commitElem: commitElem,
 			compareWithHash: compareWithHash,
 			compareWithElem: compareWithElem,
+			diffFromHash: null,
+			diffToHash: null,
 			commitDetails: null,
 			fileChanges: null,
 			fileTree: null,
@@ -765,6 +777,13 @@ class GitGraphView {
 			}
 		};
 		this.saveState();
+	}
+
+	private normaliseExpandedCommitDiffState() {
+		if (this.expandedCommit !== null && (typeof this.expandedCommit.diffFromHash !== 'string' || typeof this.expandedCommit.diffToHash !== 'string')) {
+			this.expandedCommit.diffFromHash = null;
+			this.expandedCommit.diffToHash = null;
+		}
 	}
 
 	public saveRepoStateValue<K extends keyof GG.GitRepoState>(repo: string, key: K, value: GG.GitRepoState[K]) {
@@ -2220,8 +2239,14 @@ class GitGraphView {
 					const commit = this.getCommitOfElem(eventElem);
 					if (commit === null) return;
 
-					if (this.expandedCommit.commitHash === commit.hash) {
+					if (((<MouseEvent>e).ctrlKey || (<MouseEvent>e).metaKey) && this.hasRangeSelection()) {
+						this.selectRangeIncludingCommitForWorkingTreeCompare(eventElem);
+					} else if (this.expandedCommit.commitHash === commit.hash) {
 						this.closeCommitDetails(true);
+					} else if ((<MouseEvent>e).shiftKey) {
+						if (this.expandedCommit.commitElem !== null) {
+							this.selectRangeForWorkingTreeCompare(this.expandedCommit.commitElem, <HTMLElement>eventElem);
+						}
 					} else if ((<MouseEvent>e).ctrlKey || (<MouseEvent>e).metaKey) {
 						if (this.expandedCommit.compareWithHash === commit.hash) {
 							this.closeCommitComparison(true);
@@ -2344,6 +2369,52 @@ class GitGraphView {
 				contextMenu.show(actions, false, target, <MouseEvent>e, this.viewElem);
 			}
 		});
+
+		// Drag-select a range of commits to compare combined diff against working tree.
+		this.tableElem.addEventListener('mousedown', (e: MouseEvent) => {
+			if (e.button !== 0) return;
+			if (e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return;
+			if (e.target === null) return;
+			const eventTarget = <Element>e.target;
+			if (isUrlElem(eventTarget)) return;
+			if (eventTarget.closest('.gitRef') !== null) return;
+			const row = <HTMLElement | null>eventTarget.closest('.commit');
+			if (row === null) return;
+			this.dragSelectStart = row;
+			this.dragSelectLast = row;
+			this.dragSelectMoved = false;
+			e.preventDefault();
+		});
+
+		document.addEventListener('mousemove', (e: MouseEvent) => {
+			if (this.dragSelectStart === null) return;
+			if (e.target === null) return;
+			const row = <HTMLElement | null>(<Element>e.target).closest('.commit');
+			if (row === null || row === this.dragSelectLast) return;
+			this.dragSelectMoved = true;
+			this.dragSelectLast = row;
+			this.previewRangeSelection(this.dragSelectStart, row);
+		});
+
+		document.addEventListener('mouseup', () => {
+			if (this.dragSelectStart === null) return;
+			const startElem = this.dragSelectStart;
+			const lastElem = this.dragSelectLast;
+			const moved = this.dragSelectMoved;
+			this.dragSelectStart = null;
+			this.dragSelectLast = null;
+			this.dragSelectMoved = false;
+			if (!moved || lastElem === null) return;
+			// Suppress the upcoming click that would otherwise expand the start row.
+			const suppressClick = (ev: Event) => {
+				ev.stopPropagation();
+				ev.preventDefault();
+				document.removeEventListener('click', suppressClick, true);
+			};
+			document.addEventListener('click', suppressClick, true);
+			setTimeout(() => document.removeEventListener('click', suppressClick, true), 100);
+			this.selectRangeForWorkingTreeCompare(startElem, lastElem);
+		});
 	}
 
 
@@ -2379,6 +2450,7 @@ class GitGraphView {
 		}
 		GitGraphView.closeCdvContextMenuIfOpen(expandedCommit);
 		this.expandedCommit = null;
+		this.clearRangeSelection();
 		if (saveAndRender) {
 			this.saveState();
 			if (!isDocked) {
@@ -2447,7 +2519,108 @@ class GitGraphView {
 
 	/* Commit Comparison View */
 
-	private loadCommitComparison(commitElem: HTMLElement, compareWithElem: HTMLElement) {
+	private clearRangeSelection() {
+		this.rangeSelectionStartIdx = null;
+		this.rangeSelectionEndIdx = null;
+		const selected = this.tableElem.querySelectorAll('tr.commit.' + CLASS_RANGE_SELECTED);
+		for (let i = 0; i < selected.length; i++) {
+			selected[i].classList.remove(CLASS_RANGE_SELECTED);
+		}
+	}
+
+	private hasRangeSelection() {
+		return (this.rangeSelectionStartIdx !== null && this.rangeSelectionEndIdx !== null) || this.tableElem.querySelector('tr.commit.' + CLASS_RANGE_SELECTED) !== null;
+	}
+
+	private previewRangeSelection(elemA: HTMLElement, elemB: HTMLElement) {
+		this.clearRangeSelection();
+		const idxA = parseInt(elemA.dataset.id!);
+		const idxB = parseInt(elemB.dataset.id!);
+		if (isNaN(idxA) || isNaN(idxB)) return;
+		this.applyRangeSelection(Math.min(idxA, idxB), Math.max(idxA, idxB));
+	}
+
+	private applyRangeSelection(startIdx: number, endIdx: number) {
+		for (let i = startIdx; i <= endIdx; i++) {
+			const row = <HTMLElement | null>this.tableElem.querySelector('tr.commit[data-id="' + i + '"]');
+			if (row !== null) row.classList.add(CLASS_RANGE_SELECTED);
+		}
+	}
+
+	private selectRangeForWorkingTreeCompare(elemA: HTMLElement, elemB: HTMLElement) {
+		const idxA = parseInt(elemA.dataset.id!);
+		const idxB = parseInt(elemB.dataset.id!);
+		if (isNaN(idxA) || isNaN(idxB)) return;
+
+		this.selectRangeIndexesForWorkingTreeCompare(Math.min(idxA, idxB), Math.max(idxA, idxB));
+	}
+
+	private selectRangeIncludingCommitForWorkingTreeCompare(commitElem: HTMLElement) {
+		const idx = parseInt(commitElem.dataset.id!);
+		if (isNaN(idx)) return;
+
+		let startIdx = this.rangeSelectionStartIdx !== null ? this.rangeSelectionStartIdx : idx;
+		let endIdx = this.rangeSelectionEndIdx !== null ? this.rangeSelectionEndIdx : idx;
+
+		if (this.rangeSelectionStartIdx === null || this.rangeSelectionEndIdx === null) {
+			const selected = this.tableElem.querySelectorAll('tr.commit.' + CLASS_RANGE_SELECTED);
+			for (let i = 0; i < selected.length; i++) {
+				const selectedIdx = parseInt((<HTMLElement>selected[i]).dataset.id!);
+				if (!isNaN(selectedIdx)) {
+					startIdx = Math.min(startIdx, selectedIdx);
+					endIdx = Math.max(endIdx, selectedIdx);
+				}
+			}
+		}
+
+		this.selectRangeIndexesForWorkingTreeCompare(Math.min(startIdx, idx), Math.max(endIdx, idx));
+	}
+
+	private selectRangeIndexesForWorkingTreeCompare(startIdx: number, endIdx: number) {
+		this.clearRangeSelection();
+
+		// Find the oldest non-UNCOMMITTED commit in the range (largest index that is a real commit).
+		let oldestIdx = endIdx;
+		while (oldestIdx >= startIdx && (this.commits[oldestIdx] === undefined || this.commits[oldestIdx].hash === UNCOMMITTED)) {
+			oldestIdx--;
+		}
+		if (oldestIdx < startIdx) return;
+
+		const oldestElem = <HTMLElement | null>this.tableElem.querySelector('tr.commit[data-id="' + oldestIdx + '"]');
+		if (oldestElem === null) return;
+		const oldestCommit = this.commits[oldestIdx];
+		const diffFromHash = oldestCommit.parents.length > 0 ? oldestCommit.parents[0] : EMPTY_TREE;
+
+		// Right-hand side is always the working tree.
+		const uncommittedElem = <HTMLElement | null>document.getElementById('uncommittedChanges');
+		if (uncommittedElem !== null) {
+			this.loadRangeCommitComparison(oldestElem, uncommittedElem, diffFromHash, UNCOMMITTED);
+			this.rangeSelectionStartIdx = startIdx;
+			this.rangeSelectionEndIdx = endIdx;
+			this.applyRangeSelection(startIdx, endIdx);
+			return;
+		}
+
+		// No uncommitted changes — working tree == HEAD. Compare oldest vs HEAD instead.
+		const headElem = <HTMLElement | null>this.tableElem.querySelector('tr.commit.current');
+		if (headElem !== null) {
+			const headCommit = this.getCommitOfElem(headElem);
+			if (headCommit !== null) {
+				this.loadRangeCommitComparison(oldestElem, headElem, diffFromHash, headCommit.hash);
+				this.rangeSelectionStartIdx = startIdx;
+				this.rangeSelectionEndIdx = endIdx;
+				this.applyRangeSelection(startIdx, endIdx);
+			}
+		} else {
+			this.loadCommitDetails(oldestElem);
+		}
+	}
+
+	private loadRangeCommitComparison(commitElem: HTMLElement, compareWithElem: HTMLElement, diffFromHash: string, diffToHash: string) {
+		this.loadCommitComparison(commitElem, compareWithElem, diffFromHash, diffToHash);
+	}
+
+	private loadCommitComparison(commitElem: HTMLElement, compareWithElem: HTMLElement, diffFromHash: string | null = null, diffToHash: string | null = null) {
 		const commit = this.getCommitOfElem(commitElem);
 		const compareWithCommit = this.getCommitOfElem(compareWithElem);
 
@@ -2461,16 +2634,24 @@ class GitGraphView {
 			}
 
 			this.saveExpandedCommitLoading(parseInt(commitElem.dataset.id!), commit.hash, commitElem, compareWithCommit.hash, compareWithElem);
+			this.expandedCommit!.diffFromHash = diffFromHash;
+			this.expandedCommit!.diffToHash = diffToHash;
+			if (diffFromHash !== null && diffToHash !== null) this.saveState();
 			commitElem.classList.add(CLASS_COMMIT_DETAILS_OPEN);
 			compareWithElem.classList.add(CLASS_COMMIT_DETAILS_OPEN);
 			this.renderCommitDetailsView(false);
-			this.requestCommitComparison(commit.hash, compareWithCommit.hash, false);
+			if (diffFromHash !== null && diffToHash !== null) {
+				this.requestCommitComparisonWithDiff(commit.hash, compareWithCommit.hash, diffFromHash, diffToHash, false);
+			} else {
+				this.requestCommitComparison(commit.hash, compareWithCommit.hash, false);
+			}
 		}
 	}
 
 	public closeCommitComparison(saveAndRequestCommitDetails: boolean) {
 		const expandedCommit = this.expandedCommit;
 		if (expandedCommit === null || expandedCommit.compareWithHash === null) return;
+		this.clearRangeSelection();
 
 		if (expandedCommit.compareWithElem !== null) {
 			expandedCommit.compareWithElem.classList.remove(CLASS_COMMIT_DETAILS_OPEN);
@@ -2516,7 +2697,7 @@ class GitGraphView {
 		if (expandedCommit === null || expandedCommit.commitElem === null) return;
 
 		let elem = document.getElementById('cdv'), html = '<div id="cdvContent">', isDocked = this.isCdvDocked();
-		const commitOrder = this.getCommitOrder(expandedCommit.commitHash, expandedCommit.compareWithHash === null ? expandedCommit.commitHash : expandedCommit.compareWithHash);
+		const commitOrder = this.getExpandedCommitOrder(expandedCommit);
 		const codeReviewPossible = !expandedCommit.loading && commitOrder.to !== UNCOMMITTED;
 		const externalDiffPossible = !expandedCommit.loading && (expandedCommit.compareWithHash !== null || this.commits[this.commitLookup[expandedCommit.commitHash]].parents.length > 0);
 
@@ -2660,7 +2841,7 @@ class GitGraphView {
 						sendMessage({ command: 'endCodeReview', repo: this.currentRepo, id: expandedCommit.codeReview!.id });
 						this.endCodeReview();
 					} else {
-						const commitOrder = this.getCommitOrder(expandedCommit.commitHash, expandedCommit.compareWithHash === null ? expandedCommit.commitHash : expandedCommit.compareWithHash);
+						const commitOrder = this.getExpandedCommitOrder(expandedCommit);
 						const id = expandedCommit.compareWithHash !== null ? commitOrder.from + '-' + commitOrder.to : expandedCommit.commitHash;
 						sendMessage({
 							command: 'startCodeReview',
@@ -2679,7 +2860,7 @@ class GitGraphView {
 				document.getElementById('cdvExternalDiff')!.addEventListener('click', () => {
 					const expandedCommit = this.expandedCommit;
 					if (expandedCommit === null || this.gitConfig === null || (this.gitConfig.diffTool === null && this.gitConfig.guiDiffTool === null)) return;
-					const commitOrder = this.getCommitOrder(expandedCommit.commitHash, expandedCommit.compareWithHash === null ? expandedCommit.commitHash : expandedCommit.compareWithHash);
+					const commitOrder = this.getExpandedCommitOrder(expandedCommit);
 					runAction({
 						command: 'openExternalDirDiff',
 						repo: this.currentRepo,
@@ -2848,6 +3029,12 @@ class GitGraphView {
 		}
 	}
 
+	private getExpandedCommitOrder(expandedCommit: ExpandedCommit) {
+		return typeof expandedCommit.diffFromHash === 'string' && typeof expandedCommit.diffToHash === 'string'
+			? { from: expandedCommit.diffFromHash, to: expandedCommit.diffToHash }
+			: this.getCommitOrder(expandedCommit.commitHash, expandedCommit.compareWithHash === null ? expandedCommit.commitHash : expandedCommit.compareWithHash);
+	}
+
 	private getFileViewType() {
 		return this.gitRepos[this.currentRepo].fileViewType === GG.FileViewType.Default
 			? this.config.commitDetailsView.fileViewType
@@ -2864,7 +3051,7 @@ class GitGraphView {
 		if (expandedCommit === null || expandedCommit.fileTree === null || expandedCommit.fileChanges === null || filesElem === null) return;
 		GitGraphView.closeCdvContextMenuIfOpen(expandedCommit);
 		this.setFileViewType(type);
-		const commitOrder = this.getCommitOrder(expandedCommit.commitHash, expandedCommit.compareWithHash === null ? expandedCommit.commitHash : expandedCommit.compareWithHash);
+		const commitOrder = this.getExpandedCommitOrder(expandedCommit);
 		filesElem.innerHTML = generateFileViewHtml(expandedCommit.fileTree, expandedCommit.fileChanges, expandedCommit.lastViewedFile, expandedCommit.contextMenuOpen.fileView, type, commitOrder.to === UNCOMMITTED);
 		this.makeCdvFileViewInteractive();
 		this.renderCdvFileViewTypeBtns();
@@ -2877,7 +3064,7 @@ class GitGraphView {
 		const getCommitHashForFile = (file: GG.GitFileChange, expandedCommit: ExpandedCommit) => {
 			const commit = this.commits[this.commitLookup[expandedCommit.commitHash]];
 			if (expandedCommit.compareWithHash !== null) {
-				return this.getCommitOrder(expandedCommit.commitHash, expandedCommit.compareWithHash).to;
+				return this.getExpandedCommitOrder(expandedCommit).to;
 			} else if (commit.stash !== null && file.type === GG.GitFileStatus.Untracked) {
 				return commit.stash.untrackedFilesHash!;
 			} else {
@@ -2892,7 +3079,7 @@ class GitGraphView {
 			let commit = this.commits[this.commitLookup[expandedCommit.commitHash]], fromHash: string, toHash: string, fileStatus = file.type;
 			if (expandedCommit.compareWithHash !== null) {
 				// Commit Comparison
-				const commitOrder = this.getCommitOrder(expandedCommit.commitHash, expandedCommit.compareWithHash);
+				const commitOrder = this.getExpandedCommitOrder(expandedCommit);
 				fromHash = commitOrder.from;
 				toHash = commitOrder.to;
 			} else if (commit.stash !== null) {
@@ -3025,7 +3212,7 @@ class GitGraphView {
 			if (expandedCommit === null || expandedCommit.fileChanges === null || e.target === null) return;
 			const fileElem = getFileElemOfEventTarget(e.target);
 			const file = getFileOfFileElem(expandedCommit.fileChanges, fileElem);
-			const commitOrder = this.getCommitOrder(expandedCommit.commitHash, expandedCommit.compareWithHash === null ? expandedCommit.commitHash : expandedCommit.compareWithHash);
+			const commitOrder = this.getExpandedCommitOrder(expandedCommit);
 			const isUncommitted = commitOrder.to === UNCOMMITTED;
 
 			GitGraphView.closeCdvContextMenuIfOpen(expandedCommit);

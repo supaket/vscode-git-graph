@@ -63,6 +63,7 @@ const HTML_UNESCAPER_REGEX = /&lt;|&gt;|&amp;|&quot;|&#x27;|&#x2F;/g;
 
 const ELLIPSIS = '&#8230;';
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
+const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
 const UNCOMMITTED = '*';
 const SHOW_ALL_BRANCHES = '';
 
@@ -87,6 +88,7 @@ const CLASS_REF_REMOTE = 'remote';
 const CLASS_REF_STASH = 'stash';
 const CLASS_REF_TAG = 'tag';
 const CLASS_SELECTED = 'selected';
+const CLASS_RANGE_SELECTED = 'rangeSelected';
 const CLASS_TAG_LABELS_RIGHT_ALIGNED = 'tagLabelsRightAligned';
 const CLASS_TRANSITION = 'transition';
 

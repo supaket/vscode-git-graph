@@ -27,6 +27,8 @@ declare global {
 		commitElem: HTMLElement | null;
 		compareWithHash: string | null;
 		compareWithElem: HTMLElement | null;
+		diffFromHash: string | null;
+		diffToHash: string | null;
 		commitDetails: GG.GitCommitDetails | null;
 		fileChanges: ReadonlyArray<GG.GitFileChange> | null;
 		fileTree: FileTreeFolder | null;
