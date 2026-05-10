@@ -37,6 +37,7 @@ class GitGraphView {
 	private dragSelectMoved: boolean = false;
 	private rangeSelectionStartIdx: number | null = null;
 	private rangeSelectionEndIdx: number | null = null;
+	private rangeSelectionIndexes: number[] = [];
 	private rangeSelectionDiffToHash: string | null = null;
 	private maxCommits: number;
 	private scrollTop = 0;
@@ -2250,23 +2251,19 @@ class GitGraphView {
 					const commit = this.getCommitOfElem(eventElem);
 					if (commit === null) return;
 
-					if (((<MouseEvent>e).ctrlKey || (<MouseEvent>e).metaKey) && this.hasRangeSelection()) {
-						this.selectRangeIncludingCommitForWorkingTreeCompare(eventElem);
+					if ((<MouseEvent>e).ctrlKey || (<MouseEvent>e).metaKey) {
+						this.toggleCommitRangeSelection(eventElem);
 					} else if (this.expandedCommit.commitHash === commit.hash) {
 						this.closeCommitDetails(true);
 					} else if ((<MouseEvent>e).shiftKey) {
 						if (this.expandedCommit.commitElem !== null) {
 							this.selectRangeForWorkingTreeCompare(this.expandedCommit.commitElem, <HTMLElement>eventElem);
 						}
-					} else if ((<MouseEvent>e).ctrlKey || (<MouseEvent>e).metaKey) {
-						if (this.expandedCommit.compareWithHash === commit.hash) {
-							this.closeCommitComparison(true);
-						} else if (this.expandedCommit.commitElem !== null) {
-							this.loadCommitComparison(this.expandedCommit.commitElem, eventElem);
-						}
 					} else {
 						this.loadCommitDetails(eventElem);
 					}
+				} else if ((<MouseEvent>e).ctrlKey || (<MouseEvent>e).metaKey) {
+					this.toggleCommitRangeSelection(eventElem);
 				} else {
 					this.loadCommitDetails(eventElem);
 				}
@@ -2533,16 +2530,13 @@ class GitGraphView {
 	private clearRangeSelection() {
 		this.rangeSelectionStartIdx = null;
 		this.rangeSelectionEndIdx = null;
+		this.rangeSelectionIndexes = [];
 		this.rangeSelectionDiffToHash = null;
 		const selected = this.tableElem.querySelectorAll('tr.commit.' + CLASS_RANGE_SELECTED);
 		for (let i = 0; i < selected.length; i++) {
 			selected[i].classList.remove(CLASS_RANGE_SELECTED);
 		}
 		this.renderRangeSelectionToolbar();
-	}
-
-	private hasRangeSelection() {
-		return (this.rangeSelectionStartIdx !== null && this.rangeSelectionEndIdx !== null) || this.tableElem.querySelector('tr.commit.' + CLASS_RANGE_SELECTED) !== null;
 	}
 
 	private previewRangeSelection(elemA: HTMLElement, elemB: HTMLElement) {
@@ -2581,25 +2575,67 @@ class GitGraphView {
 	private setRangeSelection(startIdx: number, endIdx: number, diffToHash: string) {
 		this.rangeSelectionStartIdx = startIdx;
 		this.rangeSelectionEndIdx = endIdx;
+		this.rangeSelectionIndexes = [];
+		for (let i = startIdx; i <= endIdx; i++) {
+			this.rangeSelectionIndexes.push(i);
+		}
 		this.rangeSelectionDiffToHash = diffToHash;
 		this.applyRangeSelection(startIdx, endIdx);
 		this.renderRangeSelectionToolbar();
 	}
 
-	private getSelectedRangeHashes() {
+	private getSelectedRangeIndexes() {
+		if (this.rangeSelectionIndexes.length > 0) return this.rangeSelectionIndexes.slice(0);
 		if (this.rangeSelectionStartIdx === null || this.rangeSelectionEndIdx === null) return [];
 
-		let hashes: string[] = [];
+		let indexes: number[] = [];
 		for (let i = this.rangeSelectionStartIdx; i <= this.rangeSelectionEndIdx; i++) {
-			if (this.commits[i] !== undefined && this.commits[i].hash !== UNCOMMITTED) {
-				hashes.push(this.commits[i].hash);
+			indexes.push(i);
+		}
+		return indexes;
+	}
+
+	private getSelectedRangeBounds() {
+		const indexes = this.getSelectedRangeIndexes();
+		if (indexes.length === 0) return null;
+
+		indexes.sort((a, b) => a - b);
+		return {
+			startIdx: indexes[0],
+			endIdx: indexes[indexes.length - 1],
+			contiguous: indexes[indexes.length - 1] - indexes[0] + 1 === indexes.length
+		};
+	}
+
+	private setSelectedRangeIndexes(indexes: number[]) {
+		this.clearRangeSelection();
+		indexes.sort((a, b) => a - b);
+		this.rangeSelectionIndexes = indexes;
+		if (indexes.length > 0) {
+			this.rangeSelectionStartIdx = indexes[0];
+			this.rangeSelectionEndIdx = indexes[indexes.length - 1];
+		}
+		for (let i = 0; i < indexes.length; i++) {
+			const row = <HTMLElement | null>this.tableElem.querySelector('tr.commit[data-id="' + indexes[i] + '"]');
+			if (row !== null) row.classList.add(CLASS_RANGE_SELECTED);
+		}
+		this.renderRangeSelectionToolbar();
+	}
+
+	private getSelectedRangeHashes() {
+		let hashes: string[] = [];
+		const indexes = this.getSelectedRangeIndexes();
+		for (let i = 0; i < indexes.length; i++) {
+			if (this.commits[indexes[i]] !== undefined && this.commits[indexes[i]].hash !== UNCOMMITTED) {
+				hashes.push(this.commits[indexes[i]].hash);
 			}
 		}
 		return hashes;
 	}
 
 	private renderRangeSelectionToolbar() {
-		if (this.rangeSelectionStartIdx === null || this.rangeSelectionEndIdx === null) {
+		const bounds = this.getSelectedRangeBounds();
+		if (bounds === null) {
 			this.rangeSelectionToolbarElem.classList.remove(CLASS_ACTIVE);
 			this.rangeSelectionToolbarElem.innerHTML = '';
 			return;
@@ -2614,9 +2650,11 @@ class GitGraphView {
 
 		this.rangeSelectionToolbarElem.innerHTML =
 			'<span class="rangeSelectionToolbarCount">' + hashes.length + ' commit' + (hashes.length === 1 ? '' : 's') + '</span>' +
-			'<button class="rangeSelectionToolbarBtn" data-action="workingTree" title="Compare selected range with Working Tree">' + SVG_ICONS.commit + '<span>Working Tree</span></button>' +
-			'<button class="rangeSelectionToolbarBtn" data-action="head" title="Compare selected range with HEAD">' + SVG_ICONS.commit + '<span>HEAD</span></button>' +
-			'<button class="rangeSelectionToolbarBtn" data-action="copyPatch" title="Copy selected range as patch">' + SVG_ICONS.copy + '<span>Patch</span></button>' +
+			(bounds.contiguous
+				? '<button class="rangeSelectionToolbarBtn" data-action="workingTree" title="Compare selected range with Working Tree">' + SVG_ICONS.commit + '<span>Working Tree</span></button>' +
+					'<button class="rangeSelectionToolbarBtn" data-action="head" title="Compare selected range with HEAD">' + SVG_ICONS.commit + '<span>HEAD</span></button>' +
+					(this.rangeSelectionDiffToHash !== null ? '<button class="rangeSelectionToolbarBtn" data-action="copyPatch" title="Copy selected range as patch">' + SVG_ICONS.copy + '<span>Patch</span></button>' : '')
+				: '') +
 			'<button class="rangeSelectionToolbarBtn iconOnly" data-action="copy" title="Copy selected commit hashes">' + SVG_ICONS.copy + '</button>' +
 			'<button class="rangeSelectionToolbarBtn iconOnly" data-action="clear" title="Clear selection">' + SVG_ICONS.close + '</button>';
 		this.rangeSelectionToolbarElem.classList.add(CLASS_ACTIVE);
@@ -2653,25 +2691,30 @@ class GitGraphView {
 		this.selectRangeIndexesForWorkingTreeCompare(Math.min(idxA, idxB), Math.max(idxA, idxB));
 	}
 
-	private selectRangeIncludingCommitForWorkingTreeCompare(commitElem: HTMLElement) {
+	private toggleCommitRangeSelection(commitElem: HTMLElement) {
 		const idx = parseInt(commitElem.dataset.id!);
 		if (isNaN(idx)) return;
+		const commit = this.commits[idx];
+		if (commit === undefined || commit.hash === UNCOMMITTED) return;
 
-		let startIdx = this.rangeSelectionStartIdx !== null ? this.rangeSelectionStartIdx : idx;
-		let endIdx = this.rangeSelectionEndIdx !== null ? this.rangeSelectionEndIdx : idx;
-
-		if (this.rangeSelectionStartIdx === null || this.rangeSelectionEndIdx === null) {
-			const selected = this.tableElem.querySelectorAll('tr.commit.' + CLASS_RANGE_SELECTED);
-			for (let i = 0; i < selected.length; i++) {
-				const selectedIdx = parseInt((<HTMLElement>selected[i]).dataset.id!);
-				if (!isNaN(selectedIdx)) {
-					startIdx = Math.min(startIdx, selectedIdx);
-					endIdx = Math.max(endIdx, selectedIdx);
-				}
+		let indexes = this.getSelectedRangeIndexes();
+		if (indexes.length === 0 && this.expandedCommit !== null && this.expandedCommit.commitElem !== null) {
+			const expandedIdx = parseInt(this.expandedCommit.commitElem.dataset.id!);
+			if (!isNaN(expandedIdx) && this.commits[expandedIdx] !== undefined && this.commits[expandedIdx].hash !== UNCOMMITTED) {
+				indexes.push(expandedIdx);
 			}
 		}
 
-		this.selectRangeIndexesForWorkingTreeCompare(Math.min(startIdx, idx), Math.max(endIdx, idx));
+		let found = false;
+		for (let i = indexes.length - 1; i >= 0; i--) {
+			if (indexes[i] === idx) {
+				indexes.splice(i, 1);
+				found = true;
+			}
+		}
+		if (!found) indexes.push(idx);
+
+		this.setSelectedRangeIndexes(indexes);
 	}
 
 	private selectRangeIndexesForWorkingTreeCompare(startIdx: number, endIdx: number) {
@@ -2721,13 +2764,15 @@ class GitGraphView {
 	}
 
 	private compareSelectedRangeWithWorkingTree() {
-		if (this.rangeSelectionStartIdx === null || this.rangeSelectionEndIdx === null) return;
-		this.selectRangeIndexesForWorkingTreeCompare(this.rangeSelectionStartIdx, this.rangeSelectionEndIdx);
+		const bounds = this.getSelectedRangeBounds();
+		if (bounds === null || !bounds.contiguous) return;
+		this.selectRangeIndexesForWorkingTreeCompare(bounds.startIdx, bounds.endIdx);
 	}
 
 	private compareSelectedRangeWithHead() {
-		if (this.rangeSelectionStartIdx === null || this.rangeSelectionEndIdx === null) return;
-		this.selectRangeIndexesForHeadCompare(this.rangeSelectionStartIdx, this.rangeSelectionEndIdx);
+		const bounds = this.getSelectedRangeBounds();
+		if (bounds === null || !bounds.contiguous) return;
+		this.selectRangeIndexesForHeadCompare(bounds.startIdx, bounds.endIdx);
 	}
 
 	private copySelectedRangeHashes() {
@@ -2737,9 +2782,10 @@ class GitGraphView {
 	}
 
 	private copySelectedRangePatch() {
-		if (this.rangeSelectionStartIdx === null || this.rangeSelectionEndIdx === null || this.rangeSelectionDiffToHash === null) return;
+		const bounds = this.getSelectedRangeBounds();
+		if (bounds === null || !bounds.contiguous || this.rangeSelectionDiffToHash === null) return;
 
-		const diffBase = this.getRangeDiffBase(this.rangeSelectionStartIdx, this.rangeSelectionEndIdx);
+		const diffBase = this.getRangeDiffBase(bounds.startIdx, bounds.endIdx);
 		if (diffBase === null) return;
 
 		sendMessage({ command: 'copyCommitPatch', repo: this.currentRepo, fromHash: diffBase.diffFromHash, toHash: this.rangeSelectionDiffToHash });
