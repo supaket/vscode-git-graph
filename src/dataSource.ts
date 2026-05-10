@@ -6,7 +6,7 @@ import * as vscode from 'vscode';
 import { AskpassEnvironment, AskpassManager } from './askpass/askpassManager';
 import { getConfig } from './config';
 import { Logger } from './logger';
-import { CommitOrdering, DateType, DeepWriteable, ErrorInfo, ErrorInfoExtensionPrefix, GitCommit, GitCommitDetails, GitCommitStash, GitConfigLocation, GitFileChange, GitFileStatus, GitPushBranchMode, GitRepoConfig, GitRepoConfigBranches, GitResetMode, GitSignature, GitSignatureStatus, GitStash, GitTagDetails, MergeActionOn, RebaseActionOn, SquashMessageFormat, TagType, Writeable } from './types';
+import { CommitOrdering, CommitSelectionComparison, DateType, DeepWriteable, ErrorInfo, ErrorInfoExtensionPrefix, GitCommit, GitCommitDetails, GitCommitStash, GitConfigLocation, GitFileChange, GitFileStatus, GitPushBranchMode, GitRepoConfig, GitRepoConfigBranches, GitResetMode, GitSignature, GitSignatureStatus, GitStash, GitTagDetails, MergeActionOn, RebaseActionOn, SquashMessageFormat, TagType, Writeable } from './types';
 import { GitExecutable, GitVersionRequirement, UNABLE_TO_FIND_GIT_MSG, UNCOMMITTED, abbrevCommit, constructIncompatibleGitVersionMessage, doesVersionMeetRequirement, getPathFromStr, getPathFromUri, openGitTerminal, pathWithTrailingSlash, realpath, resolveSpawnOutput, showErrorMessage } from './utils';
 import { Disposable } from './utils/disposable';
 import { Event } from './utils/event';
@@ -430,6 +430,30 @@ export class DataSource extends Disposable {
 				fileChanges: generateFileChanges(results[0], results[1], results[2]),
 				error: null
 			};
+		}).catch((errorMessage) => {
+			return { fileChanges: [], error: errorMessage };
+		});
+	}
+
+	/**
+	 * Get the aggregate comparison details for the selected commits.
+	 * @param repo The path of the repository.
+	 * @param comparisons The selected commit diff pairs.
+	 * @returns The aggregate comparison details.
+	 */
+	public getSelectedCommitComparison(repo: string, comparisons: ReadonlyArray<CommitSelectionComparison>): Promise<GitCommitComparisonData> {
+		return Promise.all(comparisons.map((comparison) => this.getCommitComparison(repo, comparison.fromHash, comparison.toHash))).then((results) => {
+			let errors: string[] = [], fileChangeSets: ReadonlyArray<GitFileChange>[] = [];
+			for (let i = 0; i < results.length; i++) {
+				if (results[i].error !== null) {
+					errors.push(results[i].error!);
+				}
+				fileChangeSets.push(results[i].fileChanges);
+			}
+
+			return errors.length === 0
+				? { fileChanges: aggregateFileChanges(fileChangeSets), error: null }
+				: { fileChanges: [], error: errors.join('\n\n') };
 		}).catch((errorMessage) => {
 			return { fileChanges: [], error: errorMessage };
 		});
@@ -1901,6 +1925,34 @@ function generateFileChanges(nameStatusRecords: DiffNameStatusRecord[], numStatR
 		}
 	}
 
+	return fileChanges;
+}
+
+function aggregateFileChanges(fileChangeSets: ReadonlyArray<ReadonlyArray<GitFileChange>>) {
+	let fileChanges: Writeable<GitFileChange>[] = [], fileLookup: { [file: string]: number } = {};
+	for (let i = 0; i < fileChangeSets.length; i++) {
+		for (let j = 0; j < fileChangeSets[i].length; j++) {
+			const fileChange = fileChangeSets[i][j];
+			if (typeof fileLookup[fileChange.newFilePath] === 'number') {
+				const existing = fileChanges[fileLookup[fileChange.newFilePath]];
+				existing.type = existing.type === fileChange.type ? existing.type : GitFileStatus.Modified;
+				existing.additions = existing.additions !== null && fileChange.additions !== null ? existing.additions + fileChange.additions : null;
+				existing.deletions = existing.deletions !== null && fileChange.deletions !== null ? existing.deletions + fileChange.deletions : null;
+				existing.conflict = existing.conflict === true || fileChange.conflict === true ? true : undefined;
+			} else {
+				fileLookup[fileChange.newFilePath] = fileChanges.length;
+				fileChanges.push({
+					oldFilePath: fileChange.oldFilePath,
+					newFilePath: fileChange.newFilePath,
+					type: fileChange.type,
+					additions: fileChange.additions,
+					deletions: fileChange.deletions,
+					conflict: fileChange.conflict,
+					multiCommitSelection: true
+				});
+			}
+		}
+	}
 	return fileChanges;
 }
 

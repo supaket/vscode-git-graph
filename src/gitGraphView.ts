@@ -261,6 +261,14 @@ export class GitGraphView extends Disposable {
 					refresh: msg.refresh
 				});
 				break;
+			case 'selectedCommitComparison':
+				this.sendMessage({
+					command: 'selectedCommitComparison',
+					commitHash: msg.commitHash,
+					compareWithHash: msg.compareWithHash,
+					...await this.dataSource.getSelectedCommitComparison(msg.repo, msg.comparisons)
+				});
+				break;
 			case 'copyCommitPatch':
 				this.sendMessage({
 					command: 'copyCommitPatch',

@@ -72,6 +72,7 @@ export interface GitFileChange {
 	readonly additions: number | null;
 	readonly deletions: number | null;
 	readonly conflict?: boolean;
+	readonly multiCommitSelection?: boolean;
 }
 
 export const enum GitFileStatus {
@@ -712,6 +713,23 @@ export interface ResponseCompareCommits extends ResponseWithErrorInfo {
 	readonly refresh: boolean;
 }
 
+export interface CommitSelectionComparison {
+	readonly fromHash: string;
+	readonly toHash: string;
+}
+export interface RequestSelectedCommitComparison extends RepoRequest {
+	readonly command: 'selectedCommitComparison';
+	readonly commitHash: string;
+	readonly compareWithHash: string;
+	readonly comparisons: ReadonlyArray<CommitSelectionComparison>;
+}
+export interface ResponseSelectedCommitComparison extends ResponseWithErrorInfo {
+	readonly command: 'selectedCommitComparison';
+	readonly commitHash: string;
+	readonly compareWithHash: string;
+	readonly fileChanges: ReadonlyArray<GitFileChange>;
+}
+
 export interface RequestCopyCommitPatch extends RepoRequest {
 	readonly command: 'copyCommitPatch';
 	readonly fromHash: string;
@@ -1268,6 +1286,7 @@ export type RequestMessage =
 	| RequestCleanUntrackedFiles
 	| RequestCommitDetails
 	| RequestCompareCommits
+	| RequestSelectedCommitComparison
 	| RequestCopyCommitPatch
 	| RequestCopyFilePath
 	| RequestCopyToClipboard
@@ -1332,6 +1351,7 @@ export type ResponseMessage =
 	| ResponseCherrypickCommit
 	| ResponseCleanUntrackedFiles
 	| ResponseCompareCommits
+	| ResponseSelectedCommitComparison
 	| ResponseCommitDetails
 	| ResponseCopyCommitPatch
 	| ResponseCopyFilePath

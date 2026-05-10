@@ -2728,7 +2728,46 @@ class GitGraphView {
 			if (row !== null) this.loadCommitDetails(row);
 		} else if (bounds.contiguous) {
 			this.selectRangeIndexesForWorkingTreeCompare(bounds.startIdx, bounds.endIdx);
+		} else {
+			this.loadSelectedCommitComparison(bounds.startIdx, bounds.endIdx, indexes);
 		}
+	}
+
+	private loadSelectedCommitComparison(startIdx: number, endIdx: number, indexes: number[]) {
+		const newestElem = <HTMLElement | null>this.tableElem.querySelector('tr.commit[data-id="' + startIdx + '"]');
+		const oldestElem = <HTMLElement | null>this.tableElem.querySelector('tr.commit[data-id="' + endIdx + '"]');
+		if (newestElem === null || oldestElem === null) return;
+
+		const newestCommit = this.getCommitOfElem(newestElem);
+		const oldestCommit = this.getCommitOfElem(oldestElem);
+		if (newestCommit === null || oldestCommit === null) return;
+
+		let comparisons: GG.CommitSelectionComparison[] = [];
+		for (let i = 0; i < indexes.length; i++) {
+			const commit = this.commits[indexes[i]];
+			if (commit !== undefined && commit.hash !== UNCOMMITTED) {
+				comparisons.push({
+					fromHash: commit.parents.length > 0 ? commit.parents[0] : EMPTY_TREE,
+					toHash: commit.hash
+				});
+			}
+		}
+		if (comparisons.length === 0) return;
+
+		if (this.expandedCommit !== null) {
+			if (this.expandedCommit.commitHash !== newestCommit.hash) {
+				this.closeCommitDetails(false);
+			} else if (this.expandedCommit.compareWithHash !== oldestCommit.hash) {
+				this.closeCommitComparison(false);
+			}
+		}
+
+		this.saveExpandedCommitLoading(startIdx, newestCommit.hash, newestElem, oldestCommit.hash, oldestElem);
+		newestElem.classList.add(CLASS_COMMIT_DETAILS_OPEN);
+		oldestElem.classList.add(CLASS_COMMIT_DETAILS_OPEN);
+		this.renderCommitDetailsView(false);
+		sendMessage({ command: 'selectedCommitComparison', repo: this.currentRepo, commitHash: newestCommit.hash, compareWithHash: oldestCommit.hash, comparisons: comparisons });
+		this.setSelectedRangeIndexes(indexes);
 	}
 
 	private selectRangeIndexesForWorkingTreeCompare(startIdx: number, endIdx: number) {
@@ -3613,6 +3652,14 @@ window.addEventListener('load', () => {
 					dialog.showError('Unable to load Commit Comparison', msg.error, null, null);
 				}
 				break;
+			case 'selectedCommitComparison':
+				if (msg.error === null) {
+					gitGraph.showCommitComparison(msg.commitHash, msg.compareWithHash, msg.fileChanges, gitGraph.createFileTree(msg.fileChanges, null), null, null, false);
+				} else {
+					gitGraph.closeCommitComparison(true);
+					dialog.showError('Unable to load Selected Commit Comparison', msg.error, null, null);
+				}
+				break;
 			case 'copyFilePath':
 				finishOrDisplayError(msg.error, 'Unable to Copy File Path to Clipboard');
 				break;
@@ -3963,7 +4010,7 @@ function generateFileTreeLeafHtml(name: string, leaf: FileTreeLeaf, gitFiles: Re
 	if (leaf.type === 'file') {
 		const fileTreeFile = gitFiles[leaf.index];
 		const textFile = fileTreeFile.additions !== null && fileTreeFile.deletions !== null;
-		const diffPossible = fileTreeFile.type === GG.GitFileStatus.Untracked || textFile;
+		const diffPossible = fileTreeFile.multiCommitSelection !== true && (fileTreeFile.type === GG.GitFileStatus.Untracked || textFile);
 		const changeTypeMessage = GIT_FILE_CHANGE_TYPES[fileTreeFile.type] + (fileTreeFile.type === GG.GitFileStatus.Renamed ? ' (' + escapeHtml(fileTreeFile.oldFilePath) + ' → ' + escapeHtml(fileTreeFile.newFilePath) + ')' : '');
 		const conflictMarker = fileTreeFile.conflict === true ? '<span class="fileTreeFileConflict" title="File has merge conflicts">!</span>' : '';
 		return '<li data-pathseg="' + encodedName + '"><span class="fileTreeFileRecord' + (leaf.index === fileContextMenuOpen ? ' ' + CLASS_CONTEXT_MENU_ACTIVE : '') + '" data-index="' + leaf.index + '"><span class="fileTreeFile' + (diffPossible ? ' gitDiffPossible' : '') + (leaf.reviewed ? '' : ' ' + CLASS_PENDING_REVIEW) + '" title="' + (diffPossible ? 'Click to View Diff' : 'Unable to View Diff' + (fileTreeFile.type !== GG.GitFileStatus.Deleted ? ' (this is a binary file)' : '')) + ' • ' + changeTypeMessage + '"><span class="fileTreeFileIcon">' + SVG_ICONS.file + '</span><span class="gitFileName ' + fileTreeFile.type + '">' + escapedName + '</span></span>' +
