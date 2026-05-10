@@ -1189,6 +1189,38 @@ describe('GitGraphView', () => {
 			});
 		});
 
+		describe('copyCommitPatch', () => {
+			it('Should copy a commit patch to the clipboard', async () => {
+				// Setup
+				const getCommitPatchResolvedValue = 'patch contents';
+				const copyToClipboardResolvedValue = null;
+				const spyOnGetCommitPatch = jest.spyOn(dataSource, 'getCommitPatch');
+				const spyOnCopyToClipboard = jest.spyOn(utils, 'copyToClipboard');
+				spyOnGetCommitPatch.mockResolvedValueOnce(getCommitPatchResolvedValue);
+				spyOnCopyToClipboard.mockResolvedValueOnce(copyToClipboardResolvedValue);
+
+				// Run
+				onDidReceiveMessage({
+					command: 'copyCommitPatch',
+					repo: '/path/to/repo',
+					fromHash: 'from-hash',
+					toHash: 'to-hash'
+				});
+
+				// Assert
+				await waitForExpect(() => {
+					expect(spyOnGetCommitPatch).toHaveBeenCalledWith('/path/to/repo', 'from-hash', 'to-hash');
+					expect(spyOnCopyToClipboard).toHaveBeenCalledWith(getCommitPatchResolvedValue);
+					expect(messages).toStrictEqual([
+						{
+							command: 'copyCommitPatch',
+							error: copyToClipboardResolvedValue
+						}
+					]);
+				});
+			});
+		});
+
 		describe('copyToClipboard', () => {
 			it('Should copy text to the clipboard', async () => {
 				// Setup

@@ -37,6 +37,7 @@ class GitGraphView {
 	private dragSelectMoved: boolean = false;
 	private rangeSelectionStartIdx: number | null = null;
 	private rangeSelectionEndIdx: number | null = null;
+	private rangeSelectionDiffToHash: string | null = null;
 	private maxCommits: number;
 	private scrollTop = 0;
 	private renderedGitBranchHead: string | null = null;
@@ -2532,6 +2533,7 @@ class GitGraphView {
 	private clearRangeSelection() {
 		this.rangeSelectionStartIdx = null;
 		this.rangeSelectionEndIdx = null;
+		this.rangeSelectionDiffToHash = null;
 		const selected = this.tableElem.querySelectorAll('tr.commit.' + CLASS_RANGE_SELECTED);
 		for (let i = 0; i < selected.length; i++) {
 			selected[i].classList.remove(CLASS_RANGE_SELECTED);
@@ -2576,9 +2578,10 @@ class GitGraphView {
 		};
 	}
 
-	private setRangeSelection(startIdx: number, endIdx: number) {
+	private setRangeSelection(startIdx: number, endIdx: number, diffToHash: string) {
 		this.rangeSelectionStartIdx = startIdx;
 		this.rangeSelectionEndIdx = endIdx;
+		this.rangeSelectionDiffToHash = diffToHash;
 		this.applyRangeSelection(startIdx, endIdx);
 		this.renderRangeSelectionToolbar();
 	}
@@ -2613,6 +2616,7 @@ class GitGraphView {
 			'<span class="rangeSelectionToolbarCount">' + hashes.length + ' commit' + (hashes.length === 1 ? '' : 's') + '</span>' +
 			'<button class="rangeSelectionToolbarBtn" data-action="workingTree" title="Compare selected range with Working Tree">' + SVG_ICONS.commit + '<span>Working Tree</span></button>' +
 			'<button class="rangeSelectionToolbarBtn" data-action="head" title="Compare selected range with HEAD">' + SVG_ICONS.commit + '<span>HEAD</span></button>' +
+			'<button class="rangeSelectionToolbarBtn" data-action="copyPatch" title="Copy selected range as patch">' + SVG_ICONS.copy + '<span>Patch</span></button>' +
 			'<button class="rangeSelectionToolbarBtn iconOnly" data-action="copy" title="Copy selected commit hashes">' + SVG_ICONS.copy + '</button>' +
 			'<button class="rangeSelectionToolbarBtn iconOnly" data-action="clear" title="Clear selection">' + SVG_ICONS.close + '</button>';
 		this.rangeSelectionToolbarElem.classList.add(CLASS_ACTIVE);
@@ -2626,6 +2630,8 @@ class GitGraphView {
 					this.compareSelectedRangeWithWorkingTree();
 				} else if (action === 'head') {
 					this.compareSelectedRangeWithHead();
+				} else if (action === 'copyPatch') {
+					this.copySelectedRangePatch();
 				} else if (action === 'copy') {
 					this.copySelectedRangeHashes();
 				} else if (action === 'clear') {
@@ -2678,7 +2684,7 @@ class GitGraphView {
 		const uncommittedElem = <HTMLElement | null>document.getElementById('uncommittedChanges');
 		if (uncommittedElem !== null) {
 			this.loadRangeCommitComparison(diffBase.oldestElem, uncommittedElem, diffBase.diffFromHash, UNCOMMITTED);
-			this.setRangeSelection(startIdx, endIdx);
+			this.setRangeSelection(startIdx, endIdx, UNCOMMITTED);
 			return;
 		}
 
@@ -2688,7 +2694,7 @@ class GitGraphView {
 			const headCommit = this.getCommitOfElem(headElem);
 			if (headCommit !== null) {
 				this.loadRangeCommitComparison(diffBase.oldestElem, headElem, diffBase.diffFromHash, headCommit.hash);
-				this.setRangeSelection(startIdx, endIdx);
+				this.setRangeSelection(startIdx, endIdx, headCommit.hash);
 			}
 		} else {
 			this.loadCommitDetails(diffBase.oldestElem);
@@ -2711,7 +2717,7 @@ class GitGraphView {
 		if (headCommit === null) return;
 
 		this.loadRangeCommitComparison(diffBase.oldestElem, headElem, diffBase.diffFromHash, headCommit.hash);
-		this.setRangeSelection(startIdx, endIdx);
+		this.setRangeSelection(startIdx, endIdx, headCommit.hash);
 	}
 
 	private compareSelectedRangeWithWorkingTree() {
@@ -2728,6 +2734,15 @@ class GitGraphView {
 		const hashes = this.getSelectedRangeHashes();
 		if (hashes.length === 0) return;
 		sendMessage({ command: 'copyToClipboard', type: 'Selected Commit Hashes', data: hashes.join('\n') });
+	}
+
+	private copySelectedRangePatch() {
+		if (this.rangeSelectionStartIdx === null || this.rangeSelectionEndIdx === null || this.rangeSelectionDiffToHash === null) return;
+
+		const diffBase = this.getRangeDiffBase(this.rangeSelectionStartIdx, this.rangeSelectionEndIdx);
+		if (diffBase === null) return;
+
+		sendMessage({ command: 'copyCommitPatch', repo: this.currentRepo, fromHash: diffBase.diffFromHash, toHash: this.rangeSelectionDiffToHash });
 	}
 
 	private loadRangeCommitComparison(commitElem: HTMLElement, compareWithElem: HTMLElement, diffFromHash: string, diffToHash: string) {
@@ -3540,6 +3555,9 @@ window.addEventListener('load', () => {
 				break;
 			case 'copyFilePath':
 				finishOrDisplayError(msg.error, 'Unable to Copy File Path to Clipboard');
+				break;
+			case 'copyCommitPatch':
+				finishOrDisplayError(msg.error, 'Unable to Copy Patch to Clipboard');
 				break;
 			case 'copyToClipboard':
 				finishOrDisplayError(msg.error, 'Unable to Copy ' + msg.type + ' to Clipboard');

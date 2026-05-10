@@ -436,6 +436,20 @@ export class DataSource extends Disposable {
 	}
 
 	/**
+	 * Get the raw patch for a commit comparison.
+	 * @param repo The path of the repository.
+	 * @param fromHash The commit hash the patch is from.
+	 * @param toHash The commit hash the patch is to.
+	 * @returns The raw patch.
+	 */
+	public getCommitPatch(repo: string, fromHash: string, toHash: string) {
+		let args = ['diff', '--find-renames', '--binary', fromHash];
+		if (toHash !== UNCOMMITTED) args.push(toHash);
+
+		return this.spawnGit(args, repo, (stdout) => stdout);
+	}
+
+	/**
 	 * Get the contents of a file at a specific revision.
 	 * @param repo The path of the repository.
 	 * @param commitHash The commit hash specifying the revision of the file.

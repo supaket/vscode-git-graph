@@ -261,6 +261,12 @@ export class GitGraphView extends Disposable {
 					refresh: msg.refresh
 				});
 				break;
+			case 'copyCommitPatch':
+				this.sendMessage({
+					command: 'copyCommitPatch',
+					error: await this.dataSource.getCommitPatch(msg.repo, msg.fromHash, msg.toHash).then(copyToClipboard, (errorMessage) => errorMessage)
+				});
+				break;
 			case 'copyFilePath':
 				this.sendMessage({
 					command: 'copyFilePath',

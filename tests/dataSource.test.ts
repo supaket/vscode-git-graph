@@ -3731,6 +3731,40 @@ describe('DataSource', () => {
 		});
 	});
 
+	describe('getCommitPatch', () => {
+		it('Should return the raw patch between two commits', async () => {
+			// Setup
+			mockGitSuccessOnce('patch contents');
+
+			// Run
+			const result = await dataSource.getCommitPatch('/path/to/repo', 'from-hash', 'to-hash');
+
+			// Assert
+			expect(result).toBe('patch contents');
+			expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['diff', '--find-renames', '--binary', 'from-hash', 'to-hash'], expect.objectContaining({ cwd: '/path/to/repo' }));
+		});
+
+		it('Should return the raw patch between a commit and the uncommitted changes', async () => {
+			// Setup
+			mockGitSuccessOnce('patch contents');
+
+			// Run
+			const result = await dataSource.getCommitPatch('/path/to/repo', 'from-hash', utils.UNCOMMITTED);
+
+			// Assert
+			expect(result).toBe('patch contents');
+			expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['diff', '--find-renames', '--binary', 'from-hash'], expect.objectContaining({ cwd: '/path/to/repo' }));
+		});
+
+		it('Should return an error message thrown by git', async () => {
+			// Setup
+			mockGitThrowingErrorOnce();
+
+			// Run / Assert
+			await expect(dataSource.getCommitPatch('/path/to/repo', 'from-hash', 'to-hash')).rejects.toBe('error message');
+		});
+	});
+
 	describe('getCommitFile', () => {
 		it('Should return the file contents', async () => {
 			// Setup
