@@ -55,6 +55,7 @@ class GitGraphView {
 	private readonly controlsElem: HTMLElement;
 	private readonly tableElem: HTMLElement;
 	private readonly footerElem: HTMLElement;
+	private readonly rangeSelectionToolbarElem: HTMLElement;
 	private readonly showRemoteBranchesElem: HTMLInputElement;
 	private readonly refreshBtnElem: HTMLElement;
 	private readonly scrollShadowElem: HTMLElement;
@@ -78,6 +79,10 @@ class GitGraphView {
 		this.controlsElem = document.getElementById('controls')!;
 		this.tableElem = document.getElementById('commitTable')!;
 		this.footerElem = document.getElementById('footer')!;
+		this.rangeSelectionToolbarElem = document.createElement('div');
+		this.rangeSelectionToolbarElem.id = 'rangeSelectionToolbar';
+		this.rangeSelectionToolbarElem.classList.add('unselectable');
+		this.viewElem.appendChild(this.rangeSelectionToolbarElem);
 		this.scrollShadowElem = <HTMLInputElement>document.getElementById('scrollShadow')!;
 
 		viewElem.focus();
@@ -938,6 +943,11 @@ class GitGraphView {
 					}
 				}
 			}
+		}
+
+		if (this.rangeSelectionStartIdx !== null && this.rangeSelectionEndIdx !== null) {
+			this.applyRangeSelection(this.rangeSelectionStartIdx, this.rangeSelectionEndIdx);
+			this.renderRangeSelectionToolbar();
 		}
 	}
 
@@ -2526,6 +2536,7 @@ class GitGraphView {
 		for (let i = 0; i < selected.length; i++) {
 			selected[i].classList.remove(CLASS_RANGE_SELECTED);
 		}
+		this.renderRangeSelectionToolbar();
 	}
 
 	private hasRangeSelection() {
@@ -2544,6 +2555,87 @@ class GitGraphView {
 		for (let i = startIdx; i <= endIdx; i++) {
 			const row = <HTMLElement | null>this.tableElem.querySelector('tr.commit[data-id="' + i + '"]');
 			if (row !== null) row.classList.add(CLASS_RANGE_SELECTED);
+		}
+	}
+
+	private getRangeDiffBase(startIdx: number, endIdx: number) {
+		// Find the oldest non-UNCOMMITTED commit in the range (largest index that is a real commit).
+		let oldestIdx = endIdx;
+		while (oldestIdx >= startIdx && (this.commits[oldestIdx] === undefined || this.commits[oldestIdx].hash === UNCOMMITTED)) {
+			oldestIdx--;
+		}
+		if (oldestIdx < startIdx) return null;
+
+		const oldestElem = <HTMLElement | null>this.tableElem.querySelector('tr.commit[data-id="' + oldestIdx + '"]');
+		if (oldestElem === null) return null;
+
+		const oldestCommit = this.commits[oldestIdx];
+		return {
+			oldestElem: oldestElem,
+			diffFromHash: oldestCommit.parents.length > 0 ? oldestCommit.parents[0] : EMPTY_TREE
+		};
+	}
+
+	private setRangeSelection(startIdx: number, endIdx: number) {
+		this.rangeSelectionStartIdx = startIdx;
+		this.rangeSelectionEndIdx = endIdx;
+		this.applyRangeSelection(startIdx, endIdx);
+		this.renderRangeSelectionToolbar();
+	}
+
+	private getSelectedRangeHashes() {
+		if (this.rangeSelectionStartIdx === null || this.rangeSelectionEndIdx === null) return [];
+
+		let hashes: string[] = [];
+		for (let i = this.rangeSelectionStartIdx; i <= this.rangeSelectionEndIdx; i++) {
+			if (this.commits[i] !== undefined && this.commits[i].hash !== UNCOMMITTED) {
+				hashes.push(this.commits[i].hash);
+			}
+		}
+		return hashes;
+	}
+
+	private renderRangeSelectionToolbar() {
+		if (this.rangeSelectionStartIdx === null || this.rangeSelectionEndIdx === null) {
+			this.rangeSelectionToolbarElem.classList.remove(CLASS_ACTIVE);
+			this.rangeSelectionToolbarElem.innerHTML = '';
+			return;
+		}
+
+		const hashes = this.getSelectedRangeHashes();
+		if (hashes.length === 0) {
+			this.rangeSelectionToolbarElem.classList.remove(CLASS_ACTIVE);
+			this.rangeSelectionToolbarElem.innerHTML = '';
+			return;
+		}
+
+		this.rangeSelectionToolbarElem.innerHTML =
+			'<span class="rangeSelectionToolbarCount">' + hashes.length + ' commit' + (hashes.length === 1 ? '' : 's') + '</span>' +
+			'<button class="rangeSelectionToolbarBtn" data-action="workingTree" title="Compare selected range with Working Tree">' + SVG_ICONS.commit + '<span>Working Tree</span></button>' +
+			'<button class="rangeSelectionToolbarBtn" data-action="head" title="Compare selected range with HEAD">' + SVG_ICONS.commit + '<span>HEAD</span></button>' +
+			'<button class="rangeSelectionToolbarBtn iconOnly" data-action="copy" title="Copy selected commit hashes">' + SVG_ICONS.copy + '</button>' +
+			'<button class="rangeSelectionToolbarBtn iconOnly" data-action="clear" title="Clear selection">' + SVG_ICONS.close + '</button>';
+		this.rangeSelectionToolbarElem.classList.add(CLASS_ACTIVE);
+
+		const buttons = this.rangeSelectionToolbarElem.querySelectorAll('.rangeSelectionToolbarBtn');
+		for (let i = 0; i < buttons.length; i++) {
+			buttons[i].addEventListener('click', (e) => {
+				handledEvent(e);
+				const action = (<HTMLElement>buttons[i]).dataset.action!;
+				if (action === 'workingTree') {
+					this.compareSelectedRangeWithWorkingTree();
+				} else if (action === 'head') {
+					this.compareSelectedRangeWithHead();
+				} else if (action === 'copy') {
+					this.copySelectedRangeHashes();
+				} else if (action === 'clear') {
+					if (this.expandedCommit !== null) {
+						this.closeCommitDetails(true);
+					} else {
+						this.clearRangeSelection();
+					}
+				}
+			});
 		}
 	}
 
@@ -2579,25 +2671,14 @@ class GitGraphView {
 	private selectRangeIndexesForWorkingTreeCompare(startIdx: number, endIdx: number) {
 		this.clearRangeSelection();
 
-		// Find the oldest non-UNCOMMITTED commit in the range (largest index that is a real commit).
-		let oldestIdx = endIdx;
-		while (oldestIdx >= startIdx && (this.commits[oldestIdx] === undefined || this.commits[oldestIdx].hash === UNCOMMITTED)) {
-			oldestIdx--;
-		}
-		if (oldestIdx < startIdx) return;
-
-		const oldestElem = <HTMLElement | null>this.tableElem.querySelector('tr.commit[data-id="' + oldestIdx + '"]');
-		if (oldestElem === null) return;
-		const oldestCommit = this.commits[oldestIdx];
-		const diffFromHash = oldestCommit.parents.length > 0 ? oldestCommit.parents[0] : EMPTY_TREE;
+		const diffBase = this.getRangeDiffBase(startIdx, endIdx);
+		if (diffBase === null) return;
 
 		// Right-hand side is always the working tree.
 		const uncommittedElem = <HTMLElement | null>document.getElementById('uncommittedChanges');
 		if (uncommittedElem !== null) {
-			this.loadRangeCommitComparison(oldestElem, uncommittedElem, diffFromHash, UNCOMMITTED);
-			this.rangeSelectionStartIdx = startIdx;
-			this.rangeSelectionEndIdx = endIdx;
-			this.applyRangeSelection(startIdx, endIdx);
+			this.loadRangeCommitComparison(diffBase.oldestElem, uncommittedElem, diffBase.diffFromHash, UNCOMMITTED);
+			this.setRangeSelection(startIdx, endIdx);
 			return;
 		}
 
@@ -2606,14 +2687,47 @@ class GitGraphView {
 		if (headElem !== null) {
 			const headCommit = this.getCommitOfElem(headElem);
 			if (headCommit !== null) {
-				this.loadRangeCommitComparison(oldestElem, headElem, diffFromHash, headCommit.hash);
-				this.rangeSelectionStartIdx = startIdx;
-				this.rangeSelectionEndIdx = endIdx;
-				this.applyRangeSelection(startIdx, endIdx);
+				this.loadRangeCommitComparison(diffBase.oldestElem, headElem, diffBase.diffFromHash, headCommit.hash);
+				this.setRangeSelection(startIdx, endIdx);
 			}
 		} else {
-			this.loadCommitDetails(oldestElem);
+			this.loadCommitDetails(diffBase.oldestElem);
 		}
+	}
+
+	private selectRangeIndexesForHeadCompare(startIdx: number, endIdx: number) {
+		this.clearRangeSelection();
+
+		const diffBase = this.getRangeDiffBase(startIdx, endIdx);
+		if (diffBase === null) return;
+
+		const headElem = <HTMLElement | null>this.tableElem.querySelector('tr.commit.current');
+		if (headElem === null) {
+			showErrorMessage('Unable to compare the selected commits with HEAD. The current HEAD commit is not loaded in Git Graph.');
+			return;
+		}
+
+		const headCommit = this.getCommitOfElem(headElem);
+		if (headCommit === null) return;
+
+		this.loadRangeCommitComparison(diffBase.oldestElem, headElem, diffBase.diffFromHash, headCommit.hash);
+		this.setRangeSelection(startIdx, endIdx);
+	}
+
+	private compareSelectedRangeWithWorkingTree() {
+		if (this.rangeSelectionStartIdx === null || this.rangeSelectionEndIdx === null) return;
+		this.selectRangeIndexesForWorkingTreeCompare(this.rangeSelectionStartIdx, this.rangeSelectionEndIdx);
+	}
+
+	private compareSelectedRangeWithHead() {
+		if (this.rangeSelectionStartIdx === null || this.rangeSelectionEndIdx === null) return;
+		this.selectRangeIndexesForHeadCompare(this.rangeSelectionStartIdx, this.rangeSelectionEndIdx);
+	}
+
+	private copySelectedRangeHashes() {
+		const hashes = this.getSelectedRangeHashes();
+		if (hashes.length === 0) return;
+		sendMessage({ command: 'copyToClipboard', type: 'Selected Commit Hashes', data: hashes.join('\n') });
 	}
 
 	private loadRangeCommitComparison(commitElem: HTMLElement, compareWithElem: HTMLElement, diffFromHash: string, diffToHash: string) {

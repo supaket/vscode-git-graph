@@ -667,6 +667,59 @@ svg.openFolderIcon, svg.closedFolderIcon, svg.fileIcon{
 #commitTable tr.commit.rangeSelected:hover{
 	background-color:rgba(64,128,255,0.28);
 }
+#rangeSelectionToolbar{
+	display:none;
+	position:fixed;
+	top:42px;
+	right:12px;
+	z-index:30;
+	align-items:center;
+	gap:4px;
+	padding:4px;
+	border:1px solid rgba(128,128,128,0.45);
+	border-radius:4px;
+	background-color:var(--vscode-editor-background);
+	box-shadow:0 2px 8px rgba(0,0,0,0.25);
+}
+#rangeSelectionToolbar.active{
+	display:flex;
+}
+.rangeSelectionToolbarCount{
+	padding:0 6px;
+	font-size:12px;
+	line-height:24px;
+	color:var(--vscode-descriptionForeground);
+	white-space:nowrap;
+}
+.rangeSelectionToolbarBtn{
+	display:flex;
+	align-items:center;
+	gap:4px;
+	height:24px;
+	padding:0 7px;
+	border:1px solid rgba(128,128,128,0.35);
+	border-radius:4px;
+	background-color:rgba(128,128,128,0.1);
+	color:var(--vscode-editor-foreground);
+	font-family:var(--vscode-font-family);
+	font-size:12px;
+	line-height:22px;
+	cursor:pointer;
+}
+.rangeSelectionToolbarBtn.iconOnly{
+	width:26px;
+	padding:0;
+	justify-content:center;
+}
+.rangeSelectionToolbarBtn:hover{
+	background-color:rgba(128,128,128,0.2);
+}
+.rangeSelectionToolbarBtn svg{
+	width:14px;
+	height:14px;
+	fill:var(--vscode-editor-foreground);
+	fill-opacity:0.75;
+}
 
 #commitTable tr.commit.findCurrentCommit {
 	background-image:linear-gradient(var(--git-graph-findMatchCommit), var(--git-graph-findMatchCommit));
