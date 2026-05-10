@@ -1236,6 +1236,7 @@ describe('RepoManager', () => {
 				onlyFollowFirstParent: BooleanOverride.Default,
 				onRepoLoadShowCheckedOutBranch: BooleanOverride.Default,
 				onRepoLoadShowSpecificBranches: null,
+				projectRules: null,
 				pullRequestConfig: null,
 				showRemoteBranches: true,
 				showRemoteBranchesV2: BooleanOverride.Default,
@@ -1905,6 +1906,7 @@ describe('RepoManager', () => {
 						onlyFollowFirstParent: BooleanOverride.Default,
 						onRepoLoadShowCheckedOutBranch: BooleanOverride.Default,
 						onRepoLoadShowSpecificBranches: null,
+						projectRules: null,
 						pullRequestConfig: null,
 						showRemoteBranches: true,
 						showRemoteBranchesV2: BooleanOverride.Default,
@@ -1962,6 +1964,10 @@ describe('RepoManager', () => {
 
 			describe('onRepoLoadShowSpecificBranches', () => {
 				it('Should import onRepoLoadShowSpecificBranches correctly', testApplyField('onRepoLoadShowSpecificBranches', ['master'], 'onRepoLoadShowSpecificBranches', ['master']));
+			});
+
+			describe('projectRules', () => {
+				it('Should import projectRules correctly', testApplyField('projectRules', 'Project rules', 'projectRules', 'Project rules'));
 			});
 
 			describe('pullRequestConfig', () => {
@@ -2044,6 +2050,7 @@ describe('RepoManager', () => {
 			it('Should display a validation error when "onRepoLoadShowCheckedOutBranch" is invalid', testValidationOfField('onRepoLoadShowCheckedOutBranch', 'invalid'));
 			it('Should display a validation error when "onRepoLoadShowSpecificBranches" is invalid (not an array)', testValidationOfField('onRepoLoadShowSpecificBranches', 'invalid'));
 			it('Should display a validation error when "onRepoLoadShowSpecificBranches" is invalid (array doesn\'t contain strings)', testValidationOfField('onRepoLoadShowSpecificBranches', ['master', 5]));
+			it('Should display a validation error when "projectRules" is invalid', testValidationOfField('projectRules', 5));
 			it('Should display a validation error when "pullRequestConfig" is invalid (not an object)', testValidationOfField('pullRequestConfig', 'invalid'));
 			it('Should display a validation error when "pullRequestConfig" is invalid (null)', testValidationOfField('pullRequestConfig', null));
 			it('Should display a validation error when "pullRequestConfig" is invalid (unknown provider)', testValidationOfField('pullRequestConfig', { provider: 'invalid' }));
@@ -2258,6 +2265,7 @@ describe('RepoManager', () => {
 					onlyFollowFirstParent: BooleanOverride.Default,
 					onRepoLoadShowCheckedOutBranch: BooleanOverride.Default,
 					onRepoLoadShowSpecificBranches: null,
+					projectRules: null,
 					pullRequestConfig: null,
 					showRemoteBranches: true,
 					showRemoteBranchesV2: BooleanOverride.Default,
@@ -2336,6 +2344,7 @@ describe('RepoManager', () => {
 					onlyFollowFirstParent: BooleanOverride.Default,
 					onRepoLoadShowCheckedOutBranch: BooleanOverride.Default,
 					onRepoLoadShowSpecificBranches: null,
+					projectRules: null,
 					pullRequestConfig: null,
 					showRemoteBranches: true,
 					showRemoteBranchesV2: BooleanOverride.Default,
@@ -2453,6 +2462,10 @@ describe('RepoManager', () => {
 
 		describe('onRepoLoadShowSpecificBranches', () => {
 			it('Should export onRepoLoadShowSpecificBranches correctly', testExportField('onRepoLoadShowSpecificBranches', ['master'], 'onRepoLoadShowSpecificBranches', ['master']));
+		});
+
+		describe('projectRules', () => {
+			it('Should export projectRules correctly', testExportField('projectRules', 'Project rules', 'projectRules', 'Project rules'));
 		});
 
 		describe('pullRequestConfig', () => {

@@ -2844,6 +2844,99 @@ class GitGraphView {
 		sendMessage({ command: 'copyCommitPatch', repo: this.currentRepo, fromHash: diffBase.diffFromHash, toHash: this.rangeSelectionDiffToHash });
 	}
 
+	private copyAIPromptForExpandedCommit() {
+		const expandedCommit = this.expandedCommit;
+		if (expandedCommit === null || expandedCommit.loading) return;
+
+		const comparisons = this.getExpandedCommitPatchComparisons(expandedCommit);
+		if (comparisons.length === 0) {
+			showErrorMessage('Unable to copy an AI Prompt. There are no changes to include.');
+			return;
+		}
+
+		sendMessage({
+			command: 'copyAIPrompt',
+			repo: this.currentRepo,
+			prompt: this.generateAIPrompt(expandedCommit),
+			comparisons: comparisons
+		});
+	}
+
+	private getExpandedCommitPatchComparisons(expandedCommit: ExpandedCommit): GG.CommitSelectionComparison[] {
+		if (expandedCommit.compareWithHash !== null) {
+			const selectedIndexes = this.getSelectedRangeIndexes();
+			const bounds = this.getSelectedRangeBounds();
+			if (selectedIndexes.length > 1 && bounds !== null && !bounds.contiguous) {
+				return this.getPatchComparisonsForCommitIndexes(selectedIndexes);
+			}
+
+			const commitOrder = this.getExpandedCommitOrder(expandedCommit);
+			return [{ fromHash: commitOrder.from, toHash: commitOrder.to }];
+		}
+
+		if (expandedCommit.commitHash === UNCOMMITTED) {
+			return [{ fromHash: this.commitHead !== null ? this.commitHead : EMPTY_TREE, toHash: UNCOMMITTED }];
+		}
+
+		const commitDetails = expandedCommit.commitDetails;
+		if (commitDetails === null) return [];
+		return [{ fromHash: commitDetails.parents.length > 0 ? commitDetails.parents[0] : EMPTY_TREE, toHash: commitDetails.hash }];
+	}
+
+	private getPatchComparisonsForCommitIndexes(indexes: number[]): GG.CommitSelectionComparison[] {
+		const comparisons: GG.CommitSelectionComparison[] = [];
+		for (let i = 0; i < indexes.length; i++) {
+			const commit = this.commits[indexes[i]];
+			if (commit !== undefined && commit.hash !== UNCOMMITTED) {
+				comparisons.push({
+					fromHash: commit.parents.length > 0 ? commit.parents[0] : EMPTY_TREE,
+					toHash: commit.hash
+				});
+			}
+		}
+		return comparisons;
+	}
+
+	private generateAIPrompt(expandedCommit: ExpandedCommit) {
+		const commitOrder = this.getExpandedCommitOrder(expandedCommit);
+		const projectRules = this.gitRepos[this.currentRepo].projectRules;
+		const selectedHashes = this.getSelectedRangeHashes();
+		const fileChanges = expandedCommit.fileChanges !== null ? expandedCommit.fileChanges : [];
+		const files = fileChanges.map((file) => {
+			const stats = (file.additions !== null || file.deletions !== null)
+				? ' +' + (file.additions !== null ? file.additions : '?') + ' -' + (file.deletions !== null ? file.deletions : '?')
+				: '';
+			return '- [' + file.type + (file.conflict ? ' conflict' : '') + '] ' + file.newFilePath + stats;
+		}).join('\n');
+
+		let context = 'Repository: ' + this.currentRepo + '\n' +
+			'Branch: ' + (this.gitBranchHead !== null ? this.gitBranchHead : 'Detached HEAD') + '\n';
+
+		if (expandedCommit.compareWithHash !== null) {
+			context += 'Selection: comparison from ' + commitOrder.from + ' to ' + (commitOrder.to !== UNCOMMITTED ? commitOrder.to : 'Working Tree') + '\n';
+		} else if (expandedCommit.commitHash === UNCOMMITTED) {
+			context += 'Selection: uncommitted changes\n';
+		} else if (expandedCommit.commitDetails !== null) {
+			context += 'Selection: commit ' + expandedCommit.commitDetails.hash + '\n' +
+				'Author: ' + expandedCommit.commitDetails.author + ' <' + expandedCommit.commitDetails.authorEmail + '>\n' +
+				'Message:\n' + expandedCommit.commitDetails.body + '\n';
+		}
+
+		if (selectedHashes.length > 1) {
+			context += 'Selected commits:\n' + selectedHashes.map((hash) => '- ' + hash).join('\n') + '\n';
+		}
+
+		return 'You are helping summarize and review selected Git changes.\n\n' +
+			(projectRules !== null ? 'Project Rules:\n' + projectRules + '\n\n' : '') +
+			'Task:\n' +
+			'- Summarize the selected changes for a developer.\n' +
+			'- Call out important behavior changes, risks, conflicts, and missing tests.\n' +
+			'- Suggest concrete verification steps.\n\n' +
+			'Context:\n' + context + '\n' +
+			'Files:\n' + (files !== '' ? files : '- No file changes loaded') + '\n\n' +
+			'Patch:';
+	}
+
 	private loadRangeCommitComparison(commitElem: HTMLElement, compareWithElem: HTMLElement, diffFromHash: string, diffToHash: string) {
 		this.loadCommitComparison(commitElem, compareWithElem, diffFromHash, diffToHash);
 	}
@@ -2945,6 +3038,7 @@ class GitGraphView {
 			html += '<div id="cdvLoading">' + SVG_ICONS.loading + ' Loading ' + (expandedCommit.compareWithHash === null ? expandedCommit.commitHash !== UNCOMMITTED ? 'Commit Details' : 'Uncommitted Changes' : 'Commit Comparison') + ' ...</div>';
 		} else {
 			html += '<div id="cdvSummary">';
+			html += '<div id="cdvSummaryActions"><button id="cdvAIPrompt" title="Copy AI Summary Prompt to Clipboard">' + SVG_ICONS.copy + 'AI Prompt</button></div>';
 			if (expandedCommit.compareWithHash === null) {
 				// Commit details should be shown
 				if (expandedCommit.commitHash !== UNCOMMITTED) {
@@ -3057,6 +3151,10 @@ class GitGraphView {
 
 			document.getElementById('cdvFileViewTypeList')!.addEventListener('click', () => {
 				this.changeFileViewType(GG.FileViewType.List);
+			});
+
+			document.getElementById('cdvAIPrompt')!.addEventListener('click', () => {
+				this.copyAIPromptForExpandedCommit();
 			});
 
 			if (codeReviewPossible) {
@@ -3665,6 +3763,9 @@ window.addEventListener('load', () => {
 				break;
 			case 'copyCommitPatch':
 				finishOrDisplayError(msg.error, 'Unable to Copy Patch to Clipboard');
+				break;
+			case 'copyAIPrompt':
+				finishOrDisplayError(msg.error, 'Unable to Copy AI Prompt to Clipboard');
 				break;
 			case 'copyToClipboard':
 				finishOrDisplayError(msg.error, 'Unable to Copy ' + msg.type + ' to Clipboard');

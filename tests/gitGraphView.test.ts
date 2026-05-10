@@ -1221,6 +1221,42 @@ describe('GitGraphView', () => {
 			});
 		});
 
+		describe('copyAIPrompt', () => {
+			it('Should copy an AI prompt with patches to the clipboard', async () => {
+				// Setup
+				const copyToClipboardResolvedValue = null;
+				const spyOnGetCommitPatch = jest.spyOn(dataSource, 'getCommitPatch');
+				const spyOnCopyToClipboard = jest.spyOn(utils, 'copyToClipboard');
+				spyOnGetCommitPatch.mockResolvedValueOnce('patch 1');
+				spyOnGetCommitPatch.mockResolvedValueOnce('patch 2');
+				spyOnCopyToClipboard.mockResolvedValueOnce(copyToClipboardResolvedValue);
+
+				// Run
+				onDidReceiveMessage({
+					command: 'copyAIPrompt',
+					repo: '/path/to/repo',
+					prompt: 'AI prompt',
+					comparisons: [
+						{ fromHash: 'from-hash-1', toHash: 'to-hash-1' },
+						{ fromHash: 'from-hash-2', toHash: 'to-hash-2' }
+					]
+				});
+
+				// Assert
+				await waitForExpect(() => {
+					expect(spyOnGetCommitPatch).toHaveBeenCalledWith('/path/to/repo', 'from-hash-1', 'to-hash-1');
+					expect(spyOnGetCommitPatch).toHaveBeenCalledWith('/path/to/repo', 'from-hash-2', 'to-hash-2');
+					expect(spyOnCopyToClipboard).toHaveBeenCalledWith('AI prompt\n\n```diff\npatch 1\n\npatch 2\n```');
+					expect(messages).toStrictEqual([
+						{
+							command: 'copyAIPrompt',
+							error: copyToClipboardResolvedValue
+						}
+					]);
+				});
+			});
+		});
+
 		describe('copyToClipboard', () => {
 			it('Should copy text to the clipboard', async () => {
 				// Setup

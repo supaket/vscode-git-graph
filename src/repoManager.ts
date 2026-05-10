@@ -787,6 +787,7 @@ export namespace ExternalRepoConfig {
 		onlyFollowFirstParent?: boolean;
 		onRepoLoadShowCheckedOutBranch?: boolean;
 		onRepoLoadShowSpecificBranches?: string[];
+		projectRules?: string;
 		pullRequestConfig?: PullRequestConfig;
 		showRemoteBranches?: boolean;
 		showStashes?: boolean;
@@ -886,6 +887,9 @@ function generateExternalConfigFile(state: GitRepoState): Readonly<ExternalRepoC
 	if (state.onRepoLoadShowSpecificBranches !== null) {
 		file.onRepoLoadShowSpecificBranches = state.onRepoLoadShowSpecificBranches;
 	}
+	if (state.projectRules !== null) {
+		file.projectRules = state.projectRules;
+	}
 	if (state.pullRequestConfig !== null) {
 		let provider: ExternalRepoConfig.PullRequestProvider;
 		switch (state.pullRequestConfig.provider) {
@@ -949,6 +953,9 @@ function validateExternalConfigFile(file: Readonly<ExternalRepoConfig.File>) {
 	}
 	if (typeof file.onRepoLoadShowSpecificBranches !== 'undefined' && (!Array.isArray(file.onRepoLoadShowSpecificBranches) || file.onRepoLoadShowSpecificBranches.some((branch) => typeof branch !== 'string'))) {
 		return 'onRepoLoadShowSpecificBranches';
+	}
+	if (typeof file.projectRules !== 'undefined' && typeof file.projectRules !== 'string') {
+		return 'projectRules';
 	}
 	if (typeof file.pullRequestConfig !== 'undefined' && (
 		typeof file.pullRequestConfig !== 'object' ||
@@ -1025,6 +1032,9 @@ function applyExternalConfigFile(file: Readonly<ExternalRepoConfig.File>, state:
 	}
 	if (typeof file.onRepoLoadShowSpecificBranches !== 'undefined') {
 		state.onRepoLoadShowSpecificBranches = file.onRepoLoadShowSpecificBranches;
+	}
+	if (typeof file.projectRules !== 'undefined') {
+		state.projectRules = file.projectRules;
 	}
 	if (typeof file.pullRequestConfig !== 'undefined') {
 		let provider: PullRequestProvider;

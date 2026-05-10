@@ -275,6 +275,14 @@ export class GitGraphView extends Disposable {
 					error: await this.dataSource.getCommitPatch(msg.repo, msg.fromHash, msg.toHash).then(copyToClipboard, (errorMessage) => errorMessage)
 				});
 				break;
+			case 'copyAIPrompt':
+				this.sendMessage({
+					command: 'copyAIPrompt',
+					error: await Promise.all(msg.comparisons.map((comparison) => this.dataSource.getCommitPatch(msg.repo, comparison.fromHash, comparison.toHash))).then((patches) => {
+						return copyToClipboard(msg.prompt + '\n\n```diff\n' + patches.join('\n\n') + '\n```');
+					}, (errorMessage) => errorMessage)
+				});
+				break;
 			case 'copyFilePath':
 				this.sendMessage({
 					command: 'copyFilePath',

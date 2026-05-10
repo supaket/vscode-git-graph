@@ -213,6 +213,7 @@ export interface GitRepoState {
 	onlyFollowFirstParent: BooleanOverride;
 	onRepoLoadShowCheckedOutBranch: BooleanOverride;
 	onRepoLoadShowSpecificBranches: string[] | null;
+	projectRules: string | null;
 	pullRequestConfig: PullRequestConfig | null;
 	showRemoteBranches: boolean;
 	showRemoteBranchesV2: BooleanOverride;
@@ -737,6 +738,15 @@ export interface RequestCopyCommitPatch extends RepoRequest {
 }
 export interface ResponseCopyCommitPatch extends ResponseWithErrorInfo {
 	readonly command: 'copyCommitPatch';
+}
+
+export interface RequestCopyAIPrompt extends RepoRequest {
+	readonly command: 'copyAIPrompt';
+	readonly prompt: string;
+	readonly comparisons: ReadonlyArray<CommitSelectionComparison>;
+}
+export interface ResponseCopyAIPrompt extends ResponseWithErrorInfo {
+	readonly command: 'copyAIPrompt';
 }
 
 export interface RequestCopyFilePath extends RepoRequest {
@@ -1287,6 +1297,7 @@ export type RequestMessage =
 	| RequestCommitDetails
 	| RequestCompareCommits
 	| RequestSelectedCommitComparison
+	| RequestCopyAIPrompt
 	| RequestCopyCommitPatch
 	| RequestCopyFilePath
 	| RequestCopyToClipboard
@@ -1353,6 +1364,7 @@ export type ResponseMessage =
 	| ResponseCompareCommits
 	| ResponseSelectedCommitComparison
 	| ResponseCommitDetails
+	| ResponseCopyAIPrompt
 	| ResponseCopyCommitPatch
 	| ResponseCopyFilePath
 	| ResponseCopyToClipboard

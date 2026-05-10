@@ -324,6 +324,38 @@ code{
 	right:32px;
 }
 
+#cdvSummaryActions{
+	float:right;
+	margin:0 0 6px 10px;
+}
+
+#cdvSummaryActions button{
+	display:inline-flex;
+	align-items:center;
+	height:24px;
+	padding:0 8px;
+	border:1px solid rgba(128,128,128,0.45);
+	border-radius:4px;
+	background-color:rgba(128,128,128,0.12);
+	color:var(--vscode-editor-foreground);
+	font-family:var(--vscode-font-family);
+	font-size:12px;
+	line-height:22px;
+	cursor:pointer;
+}
+
+#cdvSummaryActions button:hover{
+	background-color:rgba(128,128,128,0.22);
+}
+
+#cdvSummaryActions svg{
+	width:14px !important;
+	height:14px !important;
+	margin-right:5px;
+	fill:var(--vscode-editor-foreground);
+	fill-opacity:0.75;
+}
+
 #cdvControls{
 	position:absolute;
 	right:0;

@@ -212,6 +212,16 @@ class SettingsWidget {
 			}
 			html += '</div>';
 
+			html += '<div class="settingsSection centered"><h3>Codebase Memory / Project Rules</h3>';
+			if (this.repo.projectRules !== null) {
+				html += '<div class="projectRulesPreview">' + escapeHtml(this.repo.projectRules) + '</div>' +
+					'<div class="settingsSectionButtons"><div id="editProjectRules" class="editBtn">' + SVG_ICONS.pencil + 'Edit</div><div id="removeProjectRules" class="removeBtn">' + SVG_ICONS.close + 'Remove</div></div>';
+			} else {
+				html += '<span>Store repository-specific codebase memory and development rules for this project.</span>' +
+					'<div class="settingsSectionButtons"><div id="editProjectRules" class="addBtn">' + SVG_ICONS.plus + 'Add Project Rules</div></div>';
+			}
+			html += '</div>';
+
 			if (this.config !== null) {
 				html += '<div class="settingsSection centered"><h3>Pull Request Creation</h3>';
 				const pullRequestConfig = this.repo.pullRequestConfig;
@@ -468,6 +478,28 @@ class SettingsWidget {
 					const locallyConfigured = this.repo.issueLinkingConfig !== null;
 					dialog.showConfirmation('Are you sure you want to remove ' + (locallyConfigured ? (globalState.issueLinkingConfig !== null ? 'the <b>locally configured</b> ' : '') + 'Issue Linking from this repository' : 'the <b>globally configured</b> Issue Linking in Git Graph') + '?', 'Yes, remove', () => {
 						this.setIssueLinkingConfig(null, !locallyConfigured);
+					}, null);
+				});
+			}
+
+			document.getElementById('editProjectRules')!.addEventListener('click', () => {
+				if (this.currentRepo === null || this.repo === null) return;
+				dialog.showForm('Configure Project Rules for this repository:', [
+					{ type: DialogInputType.TextArea, name: 'Project Rules', default: this.repo.projectRules || '', placeholder: 'Example: Prefer small scoped changes. Run npm run compile-web before committing.' }
+				], 'Save Project Rules', (values) => {
+					if (this.currentRepo === null) return;
+					const projectRules = (<string>values[0]).trim();
+					this.view.saveRepoStateValue(this.currentRepo, 'projectRules', projectRules !== '' ? projectRules : null);
+					this.render();
+				}, null);
+			});
+
+			if (this.repo.projectRules !== null) {
+				document.getElementById('removeProjectRules')!.addEventListener('click', () => {
+					dialog.showConfirmation('Are you sure you want to remove the Project Rules for this repository?', 'Yes, remove', () => {
+						if (this.currentRepo === null) return;
+						this.view.saveRepoStateValue(this.currentRepo, 'projectRules', null);
+						this.render();
 					}, null);
 				});
 			}
