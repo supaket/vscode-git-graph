@@ -3641,6 +3641,32 @@ describe('DataSource', () => {
 			expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['status', '-s', '--untracked-files=all', '--porcelain', '-z'], expect.objectContaining({ cwd: '/path/to/repo' }));
 		});
 
+		it('Should mark conflicted files in the commit comparison', async () => {
+			// Setup
+			mockGitSuccessOnce(['M', 'conflicted.txt', ''].join('\0'));
+			mockGitSuccessOnce(['3	4	conflicted.txt', ''].join('\0'));
+			mockGitSuccessOnce(['UU conflicted.txt'].join('\0'));
+			vscode.mockExtensionSettingReturnValue('repository.showUntrackedFiles', true);
+
+			// Run
+			const result = await dataSource.getCommitComparison('/path/to/repo', '1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b', utils.UNCOMMITTED);
+
+			// Assert
+			expect(result).toStrictEqual({
+				fileChanges: [
+					{
+						additions: 3,
+						conflict: true,
+						deletions: 4,
+						newFilePath: 'conflicted.txt',
+						oldFilePath: 'conflicted.txt',
+						type: 'M'
+					}
+				],
+				error: null
+			});
+		});
+
 		it('Should return the commit comparison (between two commits)', async () => {
 			// Setup
 			mockGitSuccessOnce(['M', 'dir/modified.txt', 'R051', 'dir/renamed-old.txt', 'dir/renamed-new.txt', 'A', 'added.txt', ''].join('\0'));

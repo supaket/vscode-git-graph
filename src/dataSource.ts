@@ -1726,13 +1726,14 @@ export class DataSource extends Disposable {
 	private getStatus(repo: string) {
 		return this.spawnGit(['status', '-s', '--untracked-files=' + (getConfig().showUntrackedFiles ? 'all' : 'no'), '--porcelain', '-z'], repo, (stdout) => {
 			let output = stdout.split('\0'), i = 0;
-			let status: GitStatusFiles = { deleted: [], untracked: [] };
+			let status: GitStatusFiles = { conflicted: [], deleted: [], untracked: [] };
 			let path = '', c1 = '', c2 = '';
 			while (i < output.length && output[i] !== '') {
 				if (output[i].length < 4) break;
 				path = output[i].substring(3);
 				c1 = output[i].substring(0, 1);
 				c2 = output[i].substring(1, 2);
+				if (isConflictedStatus(c1, c2)) status.conflicted.push(path);
 				if (c1 === 'D' || c2 === 'D') status.deleted.push(path);
 				else if (c1 === '?' || c2 === '?') status.untracked.push(path);
 
@@ -1870,6 +1871,15 @@ function generateFileChanges(nameStatusRecords: DiffNameStatusRecord[], numStatR
 
 	if (status !== null) {
 		let filePath;
+		for (i = 0; i < status.conflicted.length; i++) {
+			filePath = getPathFromStr(status.conflicted[i]);
+			if (typeof fileLookup[filePath] === 'number') {
+				fileChanges[fileLookup[filePath]].conflict = true;
+			} else {
+				fileLookup[filePath] = fileChanges.length;
+				fileChanges.push({ oldFilePath: filePath, newFilePath: filePath, type: GitFileStatus.Modified, additions: null, deletions: null, conflict: true });
+			}
+		}
 		for (i = 0; i < status.deleted.length; i++) {
 			filePath = getPathFromStr(status.deleted[i]);
 			if (typeof fileLookup[filePath] === 'number') {
@@ -1892,6 +1902,12 @@ function generateFileChanges(nameStatusRecords: DiffNameStatusRecord[], numStatR
 	}
 
 	return fileChanges;
+}
+
+function isConflictedStatus(indexStatus: string, workingTreeStatus: string) {
+	return (indexStatus === 'A' && workingTreeStatus === 'A') ||
+		(indexStatus === 'D' && workingTreeStatus === 'D') ||
+		(indexStatus === 'U' || workingTreeStatus === 'U');
 }
 
 /**
@@ -2024,6 +2040,7 @@ interface GitRepoConfigData {
 }
 
 interface GitStatusFiles {
+	conflicted: string[];
 	deleted: string[];
 	untracked: string[];
 }

@@ -2715,6 +2715,20 @@ class GitGraphView {
 		if (!found) indexes.push(idx);
 
 		this.setSelectedRangeIndexes(indexes);
+		this.loadSelectedRangeSelection();
+	}
+
+	private loadSelectedRangeSelection() {
+		const indexes = this.getSelectedRangeIndexes();
+		const bounds = this.getSelectedRangeBounds();
+		if (bounds === null) return;
+
+		if (indexes.length === 1) {
+			const row = <HTMLElement | null>this.tableElem.querySelector('tr.commit[data-id="' + indexes[0] + '"]');
+			if (row !== null) this.loadCommitDetails(row);
+		} else if (bounds.contiguous) {
+			this.selectRangeIndexesForWorkingTreeCompare(bounds.startIdx, bounds.endIdx);
+		}
 	}
 
 	private selectRangeIndexesForWorkingTreeCompare(startIdx: number, endIdx: number) {
@@ -3951,7 +3965,9 @@ function generateFileTreeLeafHtml(name: string, leaf: FileTreeLeaf, gitFiles: Re
 		const textFile = fileTreeFile.additions !== null && fileTreeFile.deletions !== null;
 		const diffPossible = fileTreeFile.type === GG.GitFileStatus.Untracked || textFile;
 		const changeTypeMessage = GIT_FILE_CHANGE_TYPES[fileTreeFile.type] + (fileTreeFile.type === GG.GitFileStatus.Renamed ? ' (' + escapeHtml(fileTreeFile.oldFilePath) + ' → ' + escapeHtml(fileTreeFile.newFilePath) + ')' : '');
+		const conflictMarker = fileTreeFile.conflict === true ? '<span class="fileTreeFileConflict" title="File has merge conflicts">!</span>' : '';
 		return '<li data-pathseg="' + encodedName + '"><span class="fileTreeFileRecord' + (leaf.index === fileContextMenuOpen ? ' ' + CLASS_CONTEXT_MENU_ACTIVE : '') + '" data-index="' + leaf.index + '"><span class="fileTreeFile' + (diffPossible ? ' gitDiffPossible' : '') + (leaf.reviewed ? '' : ' ' + CLASS_PENDING_REVIEW) + '" title="' + (diffPossible ? 'Click to View Diff' : 'Unable to View Diff' + (fileTreeFile.type !== GG.GitFileStatus.Deleted ? ' (this is a binary file)' : '')) + ' • ' + changeTypeMessage + '"><span class="fileTreeFileIcon">' + SVG_ICONS.file + '</span><span class="gitFileName ' + fileTreeFile.type + '">' + escapedName + '</span></span>' +
+			conflictMarker +
 			(initialState.config.enhancedAccessibility ? '<span class="fileTreeFileType" title="' + changeTypeMessage + '">' + fileTreeFile.type + '</span>' : '') +
 			(fileTreeFile.type !== GG.GitFileStatus.Added && fileTreeFile.type !== GG.GitFileStatus.Untracked && fileTreeFile.type !== GG.GitFileStatus.Deleted && textFile ? '<span class="fileTreeFileAddDel">(<span class="fileTreeFileAdd" title="' + fileTreeFile.additions + ' addition' + (fileTreeFile.additions !== 1 ? 's' : '') + '">+' + fileTreeFile.additions + '</span>|<span class="fileTreeFileDel" title="' + fileTreeFile.deletions + ' deletion' + (fileTreeFile.deletions !== 1 ? 's' : '') + '">-' + fileTreeFile.deletions + '</span>)</span>' : '') +
 			(fileTreeFile.newFilePath === lastViewedFile ? '<span id="cdvLastFileViewed" title="Last File Viewed">' + SVG_ICONS.eyeOpen + '</span>' : '') +

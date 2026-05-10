@@ -610,6 +610,12 @@ svg.openFolderIcon, svg.closedFolderIcon, svg.fileIcon{
 .fileTreeFileAddDel, .fileTreeFileType{
 	margin-left:8px;
 }
+.fileTreeFileConflict{
+	margin-left:8px;
+	color:var(--vscode-gitDecoration-conflictingResourceForeground);
+	font-weight:700;
+	cursor:help;
+}
 .fileTreeFileType{
 	cursor:help;
 }
