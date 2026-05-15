@@ -714,6 +714,21 @@ export interface ResponseCompareCommits extends ResponseWithErrorInfo {
 	readonly refresh: boolean;
 }
 
+export interface CommitSelectionDetails {
+	readonly hash: string;
+	readonly hasParents: boolean;
+}
+export interface RequestSelectedCommitDetails extends RepoRequest {
+	readonly command: 'selectedCommitDetails';
+	readonly commitHash: string;
+	readonly commits: ReadonlyArray<CommitSelectionDetails>;
+}
+export interface ResponseSelectedCommitDetails extends ResponseWithErrorInfo {
+	readonly command: 'selectedCommitDetails';
+	readonly commitHash: string;
+	readonly commitDetails: ReadonlyArray<GitCommitDetails>;
+}
+
 export interface CommitSelectionComparison {
 	readonly fromHash: string;
 	readonly toHash: string;
@@ -1296,6 +1311,7 @@ export type RequestMessage =
 	| RequestCleanUntrackedFiles
 	| RequestCommitDetails
 	| RequestCompareCommits
+	| RequestSelectedCommitDetails
 	| RequestSelectedCommitComparison
 	| RequestCopyAIPrompt
 	| RequestCopyCommitPatch
@@ -1362,6 +1378,7 @@ export type ResponseMessage =
 	| ResponseCherrypickCommit
 	| ResponseCleanUntrackedFiles
 	| ResponseCompareCommits
+	| ResponseSelectedCommitDetails
 	| ResponseSelectedCommitComparison
 	| ResponseCommitDetails
 	| ResponseCopyAIPrompt

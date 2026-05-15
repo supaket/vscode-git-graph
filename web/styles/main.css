@@ -347,6 +347,10 @@ code{
 #cdvSummaryActions button:hover{
 	background-color:rgba(128,128,128,0.22);
 }
+#cdvSummaryActions button.copied{
+	border-color:rgba(0,144,40,0.55);
+	background-color:rgba(0,144,40,0.18);
+}
 
 #cdvSummaryActions svg{
 	width:14px !important;
@@ -465,6 +469,11 @@ code{
 	width:54px;
 	border-radius:4px;
 }
+.cdvSelectedCommitDivider{
+	border:0;
+	border-top:1px solid rgba(128,128,128,0.25);
+	margin:14px 0;
+}
 
 .signatureInfo{
 	cursor:help;
@@ -514,6 +523,24 @@ code{
 	white-space:nowrap;
 	text-overflow:ellipsis;
 	overflow-x:hidden;
+}
+.cdvSelectedCommitFiles{
+	padding-left:8px;
+}
+.cdvSelectedCommitFileGroup{
+	margin:6px 0 16px;
+}
+.cdvSelectedCommitFileHeader{
+	margin-bottom:6px;
+	padding-left:2px;
+	font-weight:bold;
+	white-space:nowrap;
+	text-overflow:ellipsis;
+	overflow:hidden;
+}
+.cdvSelectedCommitFileEmpty{
+	padding-left:2px;
+	opacity:0.75;
 }
 
 #cdvLoading{
@@ -601,6 +628,10 @@ code{
 .fileTreeFileRecord:hover .fileTreeFileAction, .fileTreeFileRecord.contextMenuActive .fileTreeFileAction, .fileTreeFileRecord.dialogActive .fileTreeFileAction{
 	cursor:pointer;
 	opacity:1;
+}
+.fileTreeFileRecord.cdvLastFileViewedRecord{
+	background-color:rgba(128,128,128,0.16);
+	border-radius:3px;
 }
 svg.openFolderIcon, svg.closedFolderIcon, svg.fileIcon, .fileTreeFileAction svg, #cdvLastFileViewed svg{
 	position:absolute;

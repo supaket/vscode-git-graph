@@ -261,6 +261,24 @@ export class GitGraphView extends Disposable {
 					refresh: msg.refresh
 				});
 				break;
+			case 'selectedCommitDetails':
+				const selectedCommitDetails = await Promise.all(msg.commits.map((commit) => this.dataSource.getCommitDetails(msg.repo, commit.hash, commit.hasParents)));
+				const selectedCommitDetailErrors: string[] = [], selectedCommitDetailResults = [];
+				for (let i = 0; i < selectedCommitDetails.length; i++) {
+					const commitDetails = selectedCommitDetails[i].commitDetails;
+					if (commitDetails !== null) {
+						selectedCommitDetailResults.push(commitDetails);
+					} else if (selectedCommitDetails[i].error !== null) {
+						selectedCommitDetailErrors.push(selectedCommitDetails[i].error!);
+					}
+				}
+				this.sendMessage({
+					command: 'selectedCommitDetails',
+					commitHash: msg.commitHash,
+					commitDetails: selectedCommitDetailErrors.length === 0 ? selectedCommitDetailResults : [],
+					error: selectedCommitDetailErrors.length === 0 ? null : selectedCommitDetailErrors.join('\n\n')
+				});
+				break;
 			case 'selectedCommitComparison':
 				this.sendMessage({
 					command: 'selectedCommitComparison',
@@ -276,11 +294,30 @@ export class GitGraphView extends Disposable {
 				});
 				break;
 			case 'copyAIPrompt':
+				const aiPromptPatchResults = await Promise.all(msg.comparisons.map((comparison) => {
+					return this.dataSource.getCommitPatch(msg.repo, comparison.fromHash, comparison.toHash).then((patch) => {
+						return { comparison: comparison, patch: patch, error: null };
+					}, (error) => {
+						return { comparison: comparison, patch: null, error: error };
+					});
+				}));
+				const aiPromptPatches: string[] = [], aiPromptPatchErrors: string[] = [];
+				for (let i = 0; i < aiPromptPatchResults.length; i++) {
+					if (aiPromptPatchResults[i].patch !== null) {
+						aiPromptPatches.push(aiPromptPatchResults[i].patch!);
+					} else if (aiPromptPatchResults[i].error !== null) {
+						aiPromptPatchErrors.push(
+							'Unable to include patch ' + aiPromptPatchResults[i].comparison.fromHash + ' -> ' + aiPromptPatchResults[i].comparison.toHash + ': ' + aiPromptPatchResults[i].error
+						);
+					}
+				}
 				this.sendMessage({
 					command: 'copyAIPrompt',
-					error: await Promise.all(msg.comparisons.map((comparison) => this.dataSource.getCommitPatch(msg.repo, comparison.fromHash, comparison.toHash))).then((patches) => {
-						return copyToClipboard(msg.prompt + '\n\n```diff\n' + patches.join('\n\n') + '\n```');
-					}, (errorMessage) => errorMessage)
+					error: await copyToClipboard(
+						msg.prompt +
+						(aiPromptPatchErrors.length > 0 ? '\n\nPatch collection notes:\n' + aiPromptPatchErrors.map((error) => '- ' + error).join('\n') : '') +
+						'\n\n```diff\n' + aiPromptPatches.join('\n\n') + '\n```'
+					)
 				});
 				break;
 			case 'copyFilePath':

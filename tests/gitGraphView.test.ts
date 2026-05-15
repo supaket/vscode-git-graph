@@ -1255,6 +1255,40 @@ describe('GitGraphView', () => {
 					]);
 				});
 			});
+
+			it('Should still copy an AI prompt when one patch cannot be loaded', async () => {
+				// Setup
+				const copyToClipboardResolvedValue = null;
+				const spyOnGetCommitPatch = jest.spyOn(dataSource, 'getCommitPatch');
+				const spyOnCopyToClipboard = jest.spyOn(utils, 'copyToClipboard');
+				spyOnGetCommitPatch.mockResolvedValueOnce('patch 1');
+				spyOnGetCommitPatch.mockRejectedValueOnce('patch failed');
+				spyOnCopyToClipboard.mockResolvedValueOnce(copyToClipboardResolvedValue);
+
+				// Run
+				onDidReceiveMessage({
+					command: 'copyAIPrompt',
+					repo: '/path/to/repo',
+					prompt: 'AI prompt',
+					comparisons: [
+						{ fromHash: 'from-hash-1', toHash: 'to-hash-1' },
+						{ fromHash: 'from-hash-2', toHash: 'to-hash-2' }
+					]
+				});
+
+				// Assert
+				await waitForExpect(() => {
+					expect(spyOnGetCommitPatch).toHaveBeenCalledWith('/path/to/repo', 'from-hash-1', 'to-hash-1');
+					expect(spyOnGetCommitPatch).toHaveBeenCalledWith('/path/to/repo', 'from-hash-2', 'to-hash-2');
+					expect(spyOnCopyToClipboard).toHaveBeenCalledWith('AI prompt\n\nPatch collection notes:\n- Unable to include patch from-hash-2 -> to-hash-2: patch failed\n\n```diff\npatch 1\n```');
+					expect(messages).toStrictEqual([
+						{
+							command: 'copyAIPrompt',
+							error: copyToClipboardResolvedValue
+						}
+					]);
+				});
+			});
 		});
 
 		describe('copyToClipboard', () => {

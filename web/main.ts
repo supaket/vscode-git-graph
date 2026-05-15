@@ -39,6 +39,7 @@ class GitGraphView {
 	private rangeSelectionEndIdx: number | null = null;
 	private rangeSelectionIndexes: number[] = [];
 	private rangeSelectionDiffToHash: string | null = null;
+	private aiPromptCopyFeedbackTo: number | null = null;
 	private maxCommits: number;
 	private scrollTop = 0;
 	private renderedGitBranchHead: string | null = null;
@@ -768,11 +769,14 @@ class GitGraphView {
 			diffFromHash: null,
 			diffToHash: null,
 			commitDetails: null,
+			selectedCommitDetails: null,
+			selectedCommitFileDiffs: null,
 			fileChanges: null,
 			fileTree: null,
 			avatar: null,
 			codeReview: null,
 			lastViewedFile: null,
+			lastViewedFileIndex: null,
 			loading: true,
 			scrollTop: {
 				summary: 0,
@@ -2257,7 +2261,7 @@ class GitGraphView {
 						this.closeCommitDetails(true);
 					} else if ((<MouseEvent>e).shiftKey) {
 						if (this.expandedCommit.commitElem !== null) {
-							this.selectRangeForWorkingTreeCompare(this.expandedCommit.commitElem, <HTMLElement>eventElem);
+							this.selectCommitRange(this.expandedCommit.commitElem, <HTMLElement>eventElem);
 						}
 					} else {
 						this.loadCommitDetails(eventElem);
@@ -2378,7 +2382,7 @@ class GitGraphView {
 			}
 		});
 
-		// Drag-select a range of commits to compare combined diff against working tree.
+		// Drag-select a range of commits. The comparison target is chosen from the selection toolbar.
 		this.tableElem.addEventListener('mousedown', (e: MouseEvent) => {
 			if (e.button !== 0) return;
 			if (e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return;
@@ -2421,7 +2425,7 @@ class GitGraphView {
 			};
 			document.addEventListener('click', suppressClick, true);
 			setTimeout(() => document.removeEventListener('click', suppressClick, true), 100);
-			this.selectRangeForWorkingTreeCompare(startElem, lastElem);
+			this.selectCommitRange(startElem, lastElem);
 		});
 	}
 
@@ -2486,12 +2490,49 @@ class GitGraphView {
 		expandedCommit.codeReview = codeReview;
 		if (!refresh) {
 			expandedCommit.lastViewedFile = lastViewedFile;
+			expandedCommit.lastViewedFileIndex = null;
 		}
 		expandedCommit.commitElem.classList.add(CLASS_COMMIT_DETAILS_OPEN);
 		expandedCommit.loading = false;
 		this.saveState();
 
 		this.renderCommitDetailsView(refresh);
+	}
+
+	public showSelectedCommitDetails(commitHash: string, selectedCommitDetails: ReadonlyArray<GG.GitCommitDetails>) {
+		const expandedCommit = this.expandedCommit;
+		if (expandedCommit === null || expandedCommit.commitElem === null || expandedCommit.commitHash !== commitHash || expandedCommit.compareWithHash !== null) return;
+
+		if (!this.isCdvDocked()) {
+			const elem = document.getElementById('cdv');
+			if (elem !== null) elem.remove();
+		}
+
+		expandedCommit.selectedCommitDetails = selectedCommitDetails;
+		const fileChanges: GG.GitFileChange[] = [], fileDiffs: GG.CommitSelectionComparison[] = [];
+		for (let i = 0; i < selectedCommitDetails.length; i++) {
+			const commitDetails = selectedCommitDetails[i];
+			const diff = {
+				fromHash: commitDetails.parents.length > 0 ? commitDetails.parents[0] : EMPTY_TREE,
+				toHash: commitDetails.hash
+			};
+			for (let j = 0; j < commitDetails.fileChanges.length; j++) {
+				fileChanges.push(commitDetails.fileChanges[j]);
+				fileDiffs.push(diff);
+			}
+		}
+		expandedCommit.selectedCommitFileDiffs = fileDiffs;
+		expandedCommit.fileChanges = fileChanges;
+		expandedCommit.fileTree = this.createFileTree(fileChanges, null);
+		expandedCommit.avatar = null;
+		expandedCommit.codeReview = null;
+		expandedCommit.lastViewedFile = null;
+		expandedCommit.lastViewedFileIndex = null;
+		expandedCommit.commitElem.classList.add(CLASS_COMMIT_DETAILS_OPEN);
+		expandedCommit.loading = false;
+		this.saveState();
+
+		this.renderCommitDetailsView(false);
 	}
 
 	public createFileTree(gitFiles: ReadonlyArray<GG.GitFileChange>, codeReview: GG.CodeReview | null) {
@@ -2572,7 +2613,7 @@ class GitGraphView {
 		};
 	}
 
-	private setRangeSelection(startIdx: number, endIdx: number, diffToHash: string) {
+	private setRangeSelection(startIdx: number, endIdx: number, diffToHash: string | null) {
 		this.rangeSelectionStartIdx = startIdx;
 		this.rangeSelectionEndIdx = endIdx;
 		this.rangeSelectionIndexes = [];
@@ -2673,7 +2714,7 @@ class GitGraphView {
 				} else if (action === 'copy') {
 					this.copySelectedRangeHashes();
 				} else if (action === 'clear') {
-					if (this.expandedCommit !== null) {
+					if (this.expandedCommit !== null && this.expandedCommit.compareWithHash !== null) {
 						this.closeCommitDetails(true);
 					} else {
 						this.clearRangeSelection();
@@ -2683,12 +2724,24 @@ class GitGraphView {
 		}
 	}
 
-	private selectRangeForWorkingTreeCompare(elemA: HTMLElement, elemB: HTMLElement) {
+	private selectCommitRange(elemA: HTMLElement, elemB: HTMLElement) {
 		const idxA = parseInt(elemA.dataset.id!);
 		const idxB = parseInt(elemB.dataset.id!);
 		if (isNaN(idxA) || isNaN(idxB)) return;
 
-		this.selectRangeIndexesForWorkingTreeCompare(Math.min(idxA, idxB), Math.max(idxA, idxB));
+		this.clearRangeSelection();
+		const startIdx = Math.min(idxA, idxB);
+		const endIdx = Math.max(idxA, idxB);
+		const indexes: number[] = [];
+		for (let i = startIdx; i <= endIdx; i++) {
+			indexes.push(i);
+		}
+		if (indexes.length > 1) {
+			this.loadSelectedCommitDetails(startIdx, indexes);
+		} else {
+			this.openCommitDetailsForSelection(startIdx);
+			this.setRangeSelection(startIdx, endIdx, null);
+		}
 	}
 
 	private toggleCommitRangeSelection(commitElem: HTMLElement) {
@@ -2714,59 +2767,56 @@ class GitGraphView {
 		}
 		if (!found) indexes.push(idx);
 
-		this.setSelectedRangeIndexes(indexes);
-		this.loadSelectedRangeSelection();
-	}
-
-	private loadSelectedRangeSelection() {
-		const indexes = this.getSelectedRangeIndexes();
-		const bounds = this.getSelectedRangeBounds();
-		if (bounds === null) return;
-
-		if (indexes.length === 1) {
-			const row = <HTMLElement | null>this.tableElem.querySelector('tr.commit[data-id="' + indexes[0] + '"]');
-			if (row !== null) this.loadCommitDetails(row);
-		} else if (bounds.contiguous) {
-			this.selectRangeIndexesForWorkingTreeCompare(bounds.startIdx, bounds.endIdx);
+		if (indexes.length === 0) {
+			this.clearRangeSelection();
+		} else if (indexes.length === 1) {
+			this.loadCommitDetails(commitElem);
+			this.setSelectedRangeIndexes(indexes);
 		} else {
-			this.loadSelectedCommitComparison(bounds.startIdx, bounds.endIdx, indexes);
+			this.loadSelectedCommitDetails(indexes[0], indexes);
 		}
 	}
 
-	private loadSelectedCommitComparison(startIdx: number, endIdx: number, indexes: number[]) {
+	private openCommitDetailsForSelection(index: number) {
+		const row = <HTMLElement | null>this.tableElem.querySelector('tr.commit[data-id="' + index + '"]');
+		if (row === null) return;
+		const commit = this.getCommitOfElem(row);
+		if (commit === null || commit.hash === UNCOMMITTED) return;
+		if (this.expandedCommit !== null && this.expandedCommit.commitHash === commit.hash && this.expandedCommit.compareWithHash === null) return;
+		this.loadCommitDetails(row);
+	}
+
+	private loadSelectedCommitDetails(startIdx: number, indexes: number[]) {
 		const newestElem = <HTMLElement | null>this.tableElem.querySelector('tr.commit[data-id="' + startIdx + '"]');
-		const oldestElem = <HTMLElement | null>this.tableElem.querySelector('tr.commit[data-id="' + endIdx + '"]');
-		if (newestElem === null || oldestElem === null) return;
+		if (newestElem === null) return;
 
 		const newestCommit = this.getCommitOfElem(newestElem);
-		const oldestCommit = this.getCommitOfElem(oldestElem);
-		if (newestCommit === null || oldestCommit === null) return;
+		if (newestCommit === null) return;
 
-		let comparisons: GG.CommitSelectionComparison[] = [];
+		let commits: GG.CommitSelectionDetails[] = [];
 		for (let i = 0; i < indexes.length; i++) {
 			const commit = this.commits[indexes[i]];
 			if (commit !== undefined && commit.hash !== UNCOMMITTED) {
-				comparisons.push({
-					fromHash: commit.parents.length > 0 ? commit.parents[0] : EMPTY_TREE,
-					toHash: commit.hash
+				commits.push({
+					hash: commit.hash,
+					hasParents: commit.parents.length > 0
 				});
 			}
 		}
-		if (comparisons.length === 0) return;
+		if (commits.length === 0) return;
 
 		if (this.expandedCommit !== null) {
 			if (this.expandedCommit.commitHash !== newestCommit.hash) {
 				this.closeCommitDetails(false);
-			} else if (this.expandedCommit.compareWithHash !== oldestCommit.hash) {
+			} else if (this.expandedCommit.compareWithHash !== null) {
 				this.closeCommitComparison(false);
 			}
 		}
 
-		this.saveExpandedCommitLoading(startIdx, newestCommit.hash, newestElem, oldestCommit.hash, oldestElem);
+		this.saveExpandedCommitLoading(startIdx, newestCommit.hash, newestElem, null, null);
 		newestElem.classList.add(CLASS_COMMIT_DETAILS_OPEN);
-		oldestElem.classList.add(CLASS_COMMIT_DETAILS_OPEN);
 		this.renderCommitDetailsView(false);
-		sendMessage({ command: 'selectedCommitComparison', repo: this.currentRepo, commitHash: newestCommit.hash, compareWithHash: oldestCommit.hash, comparisons: comparisons });
+		sendMessage({ command: 'selectedCommitDetails', repo: this.currentRepo, commitHash: newestCommit.hash, commits: commits });
 		this.setSelectedRangeIndexes(indexes);
 	}
 
@@ -2854,12 +2904,44 @@ class GitGraphView {
 			return;
 		}
 
+		this.setAIPromptCopyButtonState('Copying...');
 		sendMessage({
 			command: 'copyAIPrompt',
 			repo: this.currentRepo,
 			prompt: this.generateAIPrompt(expandedCommit),
 			comparisons: comparisons
 		});
+	}
+
+	public showAIPromptCopyResult(error: GG.ErrorInfo) {
+		if (error === null) {
+			this.setAIPromptCopyButtonState('Copied', true);
+		} else {
+			this.setAIPromptCopyButtonState('AI Prompt');
+		}
+	}
+
+	private setAIPromptCopyButtonState(label: string, copied: boolean = false) {
+		const button = document.getElementById('cdvAIPrompt');
+		if (button === null) return;
+
+		if (this.aiPromptCopyFeedbackTo !== null) {
+			clearTimeout(this.aiPromptCopyFeedbackTo);
+			this.aiPromptCopyFeedbackTo = null;
+		}
+
+		button.innerHTML = (copied ? SVG_ICONS.check : SVG_ICONS.copy) + label;
+		button.classList.toggle('copied', copied);
+		if (copied) {
+			this.aiPromptCopyFeedbackTo = window.setTimeout(() => {
+				const currentButton = document.getElementById('cdvAIPrompt');
+				if (currentButton !== null) {
+					currentButton.innerHTML = SVG_ICONS.copy + 'AI Prompt';
+					currentButton.classList.remove('copied');
+				}
+				this.aiPromptCopyFeedbackTo = null;
+			}, 1400);
+		}
 	}
 
 	private getExpandedCommitPatchComparisons(expandedCommit: ExpandedCommit): GG.CommitSelectionComparison[] {
@@ -2872,6 +2954,18 @@ class GitGraphView {
 
 			const commitOrder = this.getExpandedCommitOrder(expandedCommit);
 			return [{ fromHash: commitOrder.from, toHash: commitOrder.to }];
+		}
+
+		if (expandedCommit.selectedCommitDetails !== null && expandedCommit.selectedCommitDetails.length > 0) {
+			const comparisons: GG.CommitSelectionComparison[] = [];
+			for (let i = 0; i < expandedCommit.selectedCommitDetails.length; i++) {
+				const commitDetails = expandedCommit.selectedCommitDetails[i];
+				comparisons.push({
+					fromHash: commitDetails.parents.length > 0 ? commitDetails.parents[0] : EMPTY_TREE,
+					toHash: commitDetails.hash
+				});
+			}
+			return comparisons;
 		}
 
 		if (expandedCommit.commitHash === UNCOMMITTED) {
@@ -2914,6 +3008,12 @@ class GitGraphView {
 
 		if (expandedCommit.compareWithHash !== null) {
 			context += 'Selection: comparison from ' + commitOrder.from + ' to ' + (commitOrder.to !== UNCOMMITTED ? commitOrder.to : 'Working Tree') + '\n';
+		} else if (expandedCommit.selectedCommitDetails !== null && expandedCommit.selectedCommitDetails.length > 0) {
+			context += 'Selection: ' + expandedCommit.selectedCommitDetails.length + ' selected commits\n' +
+				'Selected commit details:\n' + expandedCommit.selectedCommitDetails.map((commitDetails) => {
+				const subject = commitDetails.body.split('\n')[0];
+				return '- ' + commitDetails.hash + ' by ' + commitDetails.author + ': ' + subject;
+			}).join('\n') + '\n';
 		} else if (expandedCommit.commitHash === UNCOMMITTED) {
 			context += 'Selection: uncommitted changes\n';
 		} else if (expandedCommit.commitDetails !== null) {
@@ -2926,12 +3026,19 @@ class GitGraphView {
 			context += 'Selected commits:\n' + selectedHashes.map((hash) => '- ' + hash).join('\n') + '\n';
 		}
 
-		return 'You are helping summarize and review selected Git changes.\n\n' +
+		return 'You are an expert developer assistant reviewing selected Git changes for a fast-moving developer.\n\n' +
 			(projectRules !== null ? 'Project Rules:\n' + projectRules + '\n\n' : '') +
 			'Task:\n' +
-			'- Summarize the selected changes for a developer.\n' +
-			'- Call out important behavior changes, risks, conflicts, and missing tests.\n' +
-			'- Suggest concrete verification steps.\n\n' +
+			'- Read the context, file list, and patch.\n' +
+			'- Produce a short, high-signal workflow summary for a developer who wants to act quickly.\n' +
+			'- Preserve important substance: behavior changes, risky files, conflicts, migrations, API/schema changes, missing tests, and verification steps.\n' +
+			'- Do not write a long essay. Avoid generic advice. Be concrete.\n\n' +
+			'Output format:\n' +
+			'1. Summary: 1-2 sentences explaining what changed.\n' +
+			'2. Workflow: 3-6 ordered steps the developer should do next.\n' +
+			'3. Watchouts: only real risks or edge cases from the patch; write "None obvious" if none.\n' +
+			'4. Verify: 2-5 concrete commands, screens, or checks.\n' +
+			'5. AI Notes: optional follow-up prompts if deeper review is needed.\n\n' +
 			'Context:\n' + context + '\n' +
 			'Files:\n' + (files !== '' ? files : '- No file changes loaded') + '\n\n' +
 			'Patch:';
@@ -3001,6 +3108,7 @@ class GitGraphView {
 		expandedCommit.codeReview = codeReview;
 		if (!refresh) {
 			expandedCommit.lastViewedFile = lastViewedFile;
+			expandedCommit.lastViewedFileIndex = null;
 		}
 		expandedCommit.commitElem.classList.add(CLASS_COMMIT_DETAILS_OPEN);
 		expandedCommit.compareWithElem.classList.add(CLASS_COMMIT_DETAILS_OPEN);
@@ -3008,6 +3116,57 @@ class GitGraphView {
 		this.saveState();
 
 		this.renderCommitDetailsView(refresh);
+	}
+
+	private generateCommitDetailsSummaryHtml(commitDetails: GG.GitCommitDetails, avatar: string | null, separated: boolean) {
+		const textFormatter = new TextFormatter(this.commits, this.gitRepos[this.currentRepo].issueLinkingConfig, {
+			commits: true,
+			emoji: true,
+			issueLinking: true,
+			markdown: this.config.markdown,
+			multiline: true,
+			urls: true
+		});
+		const parents = commitDetails.parents.length > 0
+			? commitDetails.parents.map((parent) => {
+				const escapedParent = escapeHtml(parent);
+				return typeof this.commitLookup[parent] === 'number'
+					? '<span class="' + CLASS_INTERNAL_URL + '" data-type="commit" data-value="' + escapedParent + '" tabindex="-1">' + escapedParent + '</span>'
+					: escapedParent;
+			}).join(', ')
+			: 'None';
+		return (separated ? '<hr class="cdvSelectedCommitDivider">' : '')
+			+ '<span class="cdvSummaryTop' + (avatar !== null ? ' withAvatar' : '') + '"><span class="cdvSummaryTopRow"><span class="cdvSummaryKeyValues">'
+			+ '<b>Commit: </b>' + escapeHtml(commitDetails.hash) + '<br>'
+			+ '<b>Parents: </b>' + parents + '<br>'
+			+ '<b>Author: </b>' + escapeHtml(commitDetails.author) + (commitDetails.authorEmail !== '' ? ' &lt;<a class="' + CLASS_EXTERNAL_URL + '" href="mailto:' + escapeHtml(commitDetails.authorEmail) + '" tabindex="-1">' + escapeHtml(commitDetails.authorEmail) + '</a>&gt;' : '') + '<br>'
+			+ (commitDetails.authorDate !== commitDetails.committerDate ? '<b>Author Date: </b>' + formatLongDate(commitDetails.authorDate) + '<br>' : '')
+			+ '<b>Committer: </b>' + escapeHtml(commitDetails.committer) + (commitDetails.committerEmail !== '' ? ' &lt;<a class="' + CLASS_EXTERNAL_URL + '" href="mailto:' + escapeHtml(commitDetails.committerEmail) + '" tabindex="-1">' + escapeHtml(commitDetails.committerEmail) + '</a>&gt;' : '') + (commitDetails.signature !== null ? generateSignatureHtml(commitDetails.signature) : '') + '<br>'
+			+ '<b>' + (commitDetails.authorDate !== commitDetails.committerDate ? 'Committer ' : '') + 'Date: </b>' + formatLongDate(commitDetails.committerDate)
+			+ '</span>'
+			+ (avatar !== null ? '<span class="cdvSummaryAvatar"><img src="' + avatar + '"></span>' : '')
+			+ '</span></span><br><br>' + textFormatter.format(commitDetails.body);
+	}
+
+	private generateSelectedCommitFilesHtml(selectedCommitDetails: ReadonlyArray<GG.GitCommitDetails>) {
+		const expandedCommit = this.expandedCommit;
+		if (expandedCommit === null || expandedCommit.fileChanges === null) return '';
+
+		let html = '<div class="cdvSelectedCommitFiles">', fileOffset = 0;
+		for (let i = 0; i < selectedCommitDetails.length; i++) {
+			const commitDetails = selectedCommitDetails[i];
+			html += '<div class="cdvSelectedCommitFileGroup"><div class="cdvSelectedCommitFileHeader">' + escapeHtml(commitDetails.hash) + '</div>';
+			if (commitDetails.fileChanges.length === 0) {
+				html += '<div class="cdvSelectedCommitFileEmpty">No file changes.</div>';
+			} else {
+				const fileTree = this.createFileTree(commitDetails.fileChanges, null);
+				offsetFileTreeIndexes(fileTree, fileOffset);
+				html += generateFileViewHtml(fileTree, expandedCommit.fileChanges, expandedCommit.lastViewedFile, expandedCommit.lastViewedFileIndex, expandedCommit.contextMenuOpen.fileView, this.getFileViewType(), false);
+				fileOffset += commitDetails.fileChanges.length;
+			}
+			html += '</div>';
+		}
+		return html + '</div>';
 	}
 
 
@@ -3019,8 +3178,10 @@ class GitGraphView {
 
 		let elem = document.getElementById('cdv'), html = '<div id="cdvContent">', isDocked = this.isCdvDocked();
 		const commitOrder = this.getExpandedCommitOrder(expandedCommit);
-		const codeReviewPossible = !expandedCommit.loading && commitOrder.to !== UNCOMMITTED;
-		const externalDiffPossible = !expandedCommit.loading && (expandedCommit.compareWithHash !== null || this.commits[this.commitLookup[expandedCommit.commitHash]].parents.length > 0);
+		const selectedCommitDetails = Array.isArray(expandedCommit.selectedCommitDetails) ? expandedCommit.selectedCommitDetails : null;
+		const showingSelectedCommitDetails = selectedCommitDetails !== null && expandedCommit.compareWithHash === null;
+		const codeReviewPossible = !expandedCommit.loading && !showingSelectedCommitDetails && commitOrder.to !== UNCOMMITTED;
+		const externalDiffPossible = !expandedCommit.loading && !showingSelectedCommitDetails && (expandedCommit.compareWithHash !== null || this.commits[this.commitLookup[expandedCommit.commitHash]].parents.length > 0);
 
 		if (elem === null) {
 			elem = document.createElement(isDocked ? 'div' : 'tr');
@@ -3038,37 +3199,17 @@ class GitGraphView {
 			html += '<div id="cdvLoading">' + SVG_ICONS.loading + ' Loading ' + (expandedCommit.compareWithHash === null ? expandedCommit.commitHash !== UNCOMMITTED ? 'Commit Details' : 'Uncommitted Changes' : 'Commit Comparison') + ' ...</div>';
 		} else {
 			html += '<div id="cdvSummary">';
-			html += '<div id="cdvSummaryActions"><button id="cdvAIPrompt" title="Copy AI Summary Prompt to Clipboard">' + SVG_ICONS.copy + 'AI Prompt</button></div>';
-			if (expandedCommit.compareWithHash === null) {
+			html += '<div id="cdvSummaryActions"><button id="cdvAIPrompt" title="Copy AI Workflow Prompt to Clipboard">' + SVG_ICONS.copy + 'AI Prompt</button></div>';
+			if (showingSelectedCommitDetails) {
+				html += '<b>Selected Commits: </b>' + selectedCommitDetails!.length + '<br><br>';
+				for (let i = 0; i < selectedCommitDetails!.length; i++) {
+					html += this.generateCommitDetailsSummaryHtml(selectedCommitDetails![i], null, i > 0);
+				}
+			} else if (expandedCommit.compareWithHash === null) {
 				// Commit details should be shown
 				if (expandedCommit.commitHash !== UNCOMMITTED) {
-					const textFormatter = new TextFormatter(this.commits, this.gitRepos[this.currentRepo].issueLinkingConfig, {
-						commits: true,
-						emoji: true,
-						issueLinking: true,
-						markdown: this.config.markdown,
-						multiline: true,
-						urls: true
-					});
 					const commitDetails = expandedCommit.commitDetails!;
-					const parents = commitDetails.parents.length > 0
-						? commitDetails.parents.map((parent) => {
-							const escapedParent = escapeHtml(parent);
-							return typeof this.commitLookup[parent] === 'number'
-								? '<span class="' + CLASS_INTERNAL_URL + '" data-type="commit" data-value="' + escapedParent + '" tabindex="-1">' + escapedParent + '</span>'
-								: escapedParent;
-						}).join(', ')
-						: 'None';
-					html += '<span class="cdvSummaryTop' + (expandedCommit.avatar !== null ? ' withAvatar' : '') + '"><span class="cdvSummaryTopRow"><span class="cdvSummaryKeyValues">'
-						+ '<b>Commit: </b>' + escapeHtml(commitDetails.hash) + '<br>'
-						+ '<b>Parents: </b>' + parents + '<br>'
-						+ '<b>Author: </b>' + escapeHtml(commitDetails.author) + (commitDetails.authorEmail !== '' ? ' &lt;<a class="' + CLASS_EXTERNAL_URL + '" href="mailto:' + escapeHtml(commitDetails.authorEmail) + '" tabindex="-1">' + escapeHtml(commitDetails.authorEmail) + '</a>&gt;' : '') + '<br>'
-						+ (commitDetails.authorDate !== commitDetails.committerDate ? '<b>Author Date: </b>' + formatLongDate(commitDetails.authorDate) + '<br>' : '')
-						+ '<b>Committer: </b>' + escapeHtml(commitDetails.committer) + (commitDetails.committerEmail !== '' ? ' &lt;<a class="' + CLASS_EXTERNAL_URL + '" href="mailto:' + escapeHtml(commitDetails.committerEmail) + '" tabindex="-1">' + escapeHtml(commitDetails.committerEmail) + '</a>&gt;' : '') + (commitDetails.signature !== null ? generateSignatureHtml(commitDetails.signature) : '') + '<br>'
-						+ '<b>' + (commitDetails.authorDate !== commitDetails.committerDate ? 'Committer ' : '') + 'Date: </b>' + formatLongDate(commitDetails.committerDate)
-						+ '</span>'
-						+ (expandedCommit.avatar !== null ? '<span class="cdvSummaryAvatar"><img src="' + expandedCommit.avatar + '"></span>' : '')
-						+ '</span></span><br><br>' + textFormatter.format(commitDetails.body);
+					html += this.generateCommitDetailsSummaryHtml(commitDetails, expandedCommit.avatar, false);
 				} else {
 					html += 'Displaying all uncommitted changes.';
 				}
@@ -3076,11 +3217,11 @@ class GitGraphView {
 				// Commit comparison should be shown
 				html += 'Displaying all changes from <b>' + commitOrder.from + '</b> to <b>' + (commitOrder.to !== UNCOMMITTED ? commitOrder.to : 'Uncommitted Changes') + '</b>.';
 			}
-			html += '</div><div id="cdvFiles">' + generateFileViewHtml(expandedCommit.fileTree!, expandedCommit.fileChanges!, expandedCommit.lastViewedFile, expandedCommit.contextMenuOpen.fileView, this.getFileViewType(), commitOrder.to === UNCOMMITTED) + '</div><div id="cdvDivider"></div>';
+			html += '</div><div id="cdvFiles">' + (showingSelectedCommitDetails ? this.generateSelectedCommitFilesHtml(selectedCommitDetails!) : generateFileViewHtml(expandedCommit.fileTree!, expandedCommit.fileChanges!, expandedCommit.lastViewedFile, expandedCommit.lastViewedFileIndex, expandedCommit.contextMenuOpen.fileView, this.getFileViewType(), commitOrder.to === UNCOMMITTED)) + '</div><div id="cdvDivider"></div>';
 		}
 		html += '</div><div id="cdvControls"><div id="cdvClose" class="cdvControlBtn" title="Close">' + SVG_ICONS.close + '</div>' +
 			(codeReviewPossible ? '<div id="cdvCodeReview" class="cdvControlBtn">' + SVG_ICONS.review + '</div>' : '') +
-			(!expandedCommit.loading ? '<div id="cdvFileViewTypeTree" class="cdvControlBtn cdvFileViewTypeBtn" title="File Tree View">' + SVG_ICONS.fileTree + '</div><div id="cdvFileViewTypeList" class="cdvControlBtn cdvFileViewTypeBtn" title="File List View">' + SVG_ICONS.fileList + '</div>' : '') +
+			(!expandedCommit.loading && !showingSelectedCommitDetails ? '<div id="cdvFileViewTypeTree" class="cdvControlBtn cdvFileViewTypeBtn" title="File Tree View">' + SVG_ICONS.fileTree + '</div><div id="cdvFileViewTypeList" class="cdvControlBtn cdvFileViewTypeBtn" title="File List View">' + SVG_ICONS.fileList + '</div>' : '') +
 			(externalDiffPossible ? '<div id="cdvExternalDiff" class="cdvControlBtn">' + SVG_ICONS.linkExternal + '</div>' : '') +
 			'</div><div class="cdvHeightResize"></div>';
 
@@ -3123,7 +3264,7 @@ class GitGraphView {
 
 		if (!expandedCommit.loading) {
 			this.makeCdvFileViewInteractive();
-			this.renderCdvFileViewTypeBtns();
+			if (!showingSelectedCommitDetails) this.renderCdvFileViewTypeBtns();
 			this.renderCdvExternalDiffBtn();
 			this.makeCdvDividerDraggable();
 
@@ -3145,13 +3286,15 @@ class GitGraphView {
 				}
 			}, () => this.saveState());
 
-			document.getElementById('cdvFileViewTypeTree')!.addEventListener('click', () => {
-				this.changeFileViewType(GG.FileViewType.Tree);
-			});
+			if (!showingSelectedCommitDetails) {
+				document.getElementById('cdvFileViewTypeTree')!.addEventListener('click', () => {
+					this.changeFileViewType(GG.FileViewType.Tree);
+				});
 
-			document.getElementById('cdvFileViewTypeList')!.addEventListener('click', () => {
-				this.changeFileViewType(GG.FileViewType.List);
-			});
+				document.getElementById('cdvFileViewTypeList')!.addEventListener('click', () => {
+					this.changeFileViewType(GG.FileViewType.List);
+				});
+			}
 
 			document.getElementById('cdvAIPrompt')!.addEventListener('click', () => {
 				this.copyAIPromptForExpandedCommit();
@@ -3301,8 +3444,13 @@ class GitGraphView {
 
 		if (fileWasViewed) {
 			expandedCommit.lastViewedFile = filePath;
+			const fileIndex = parseInt(fileElem.dataset.index!);
+			expandedCommit.lastViewedFileIndex = isNaN(fileIndex) ? null : fileIndex;
 			let lastViewedElem = document.getElementById('cdvLastFileViewed');
 			if (lastViewedElem !== null) lastViewedElem.remove();
+			const lastViewedRecordElem = document.querySelector('.cdvLastFileViewedRecord');
+			if (lastViewedRecordElem !== null) lastViewedRecordElem.classList.remove('cdvLastFileViewedRecord');
+			fileElem.classList.add('cdvLastFileViewedRecord');
 			lastViewedElem = document.createElement('span');
 			lastViewedElem.id = 'cdvLastFileViewed';
 			lastViewedElem.title = 'Last File Viewed';
@@ -3378,7 +3526,7 @@ class GitGraphView {
 		GitGraphView.closeCdvContextMenuIfOpen(expandedCommit);
 		this.setFileViewType(type);
 		const commitOrder = this.getExpandedCommitOrder(expandedCommit);
-		filesElem.innerHTML = generateFileViewHtml(expandedCommit.fileTree, expandedCommit.fileChanges, expandedCommit.lastViewedFile, expandedCommit.contextMenuOpen.fileView, type, commitOrder.to === UNCOMMITTED);
+		filesElem.innerHTML = generateFileViewHtml(expandedCommit.fileTree, expandedCommit.fileChanges, expandedCommit.lastViewedFile, expandedCommit.lastViewedFileIndex, expandedCommit.contextMenuOpen.fileView, type, commitOrder.to === UNCOMMITTED);
 		this.makeCdvFileViewInteractive();
 		this.renderCdvFileViewTypeBtns();
 	}
@@ -3387,7 +3535,18 @@ class GitGraphView {
 		const getFileElemOfEventTarget = (target: EventTarget) => <HTMLElement>(<Element>target).closest('.fileTreeFileRecord');
 		const getFileOfFileElem = (fileChanges: ReadonlyArray<GG.GitFileChange>, fileElem: HTMLElement) => fileChanges[parseInt(fileElem.dataset.index!)];
 
-		const getCommitHashForFile = (file: GG.GitFileChange, expandedCommit: ExpandedCommit) => {
+		const getSelectedCommitFileDiff = (expandedCommit: ExpandedCommit, fileElem: HTMLElement) => {
+			if (expandedCommit.selectedCommitFileDiffs === null) return null;
+			const diff = expandedCommit.selectedCommitFileDiffs[parseInt(fileElem.dataset.index!)];
+			return typeof diff !== 'undefined' ? diff : null;
+		};
+
+		const getCommitHashForFile = (file: GG.GitFileChange, expandedCommit: ExpandedCommit, fileElem: HTMLElement | null) => {
+			const selectedCommitFileDiff = fileElem !== null ? getSelectedCommitFileDiff(expandedCommit, fileElem) : null;
+			if (selectedCommitFileDiff !== null) {
+				return selectedCommitFileDiff.toHash;
+			}
+
 			const commit = this.commits[this.commitLookup[expandedCommit.commitHash]];
 			if (expandedCommit.compareWithHash !== null) {
 				return this.getExpandedCommitOrder(expandedCommit).to;
@@ -3402,8 +3561,12 @@ class GitGraphView {
 			const expandedCommit = this.expandedCommit;
 			if (expandedCommit === null) return;
 
+			const selectedCommitFileDiff = getSelectedCommitFileDiff(expandedCommit, fileElem);
 			let commit = this.commits[this.commitLookup[expandedCommit.commitHash]], fromHash: string, toHash: string, fileStatus = file.type;
-			if (expandedCommit.compareWithHash !== null) {
+			if (selectedCommitFileDiff !== null) {
+				fromHash = selectedCommitFileDiff.fromHash;
+				toHash = selectedCommitFileDiff.toHash;
+			} else if (expandedCommit.compareWithHash !== null) {
 				// Commit Comparison
 				const commitOrder = this.getExpandedCommitOrder(expandedCommit);
 				fromHash = commitOrder.from;
@@ -3444,7 +3607,7 @@ class GitGraphView {
 			const expandedCommit = this.expandedCommit;
 			if (expandedCommit === null) return;
 
-			const commitHash = getCommitHashForFile(file, expandedCommit);
+			const commitHash = getCommitHashForFile(file, expandedCommit, fileElem);
 			dialog.showConfirmation('Are you sure you want to reset <b><i>' + escapeHtml(file.newFilePath) + '</i></b> to it\'s state at commit <b><i>' + abbrevCommit(commitHash) + '</i></b>? Any uncommitted changes made to this file will be overwritten.', 'Yes, reset file', () => {
 				runAction({ command: 'resetFileToRevision', repo: this.currentRepo, commitHash: commitHash, filePath: file.newFilePath }, 'Resetting file');
 			}, {
@@ -3459,7 +3622,7 @@ class GitGraphView {
 			if (expandedCommit === null) return;
 
 			this.cdvUpdateFileState(file, fileElem, true, true);
-			sendMessage({ command: 'viewFileAtRevision', repo: this.currentRepo, hash: getCommitHashForFile(file, expandedCommit), filePath: file.newFilePath });
+			sendMessage({ command: 'viewFileAtRevision', repo: this.currentRepo, hash: getCommitHashForFile(file, expandedCommit, fileElem), filePath: file.newFilePath });
 		};
 
 		const triggerViewFileDiffWithWorkingFile = (file: GG.GitFileChange, fileElem: HTMLElement) => {
@@ -3467,7 +3630,7 @@ class GitGraphView {
 			if (expandedCommit === null) return;
 
 			this.cdvUpdateFileState(file, fileElem, null, true);
-			sendMessage({ command: 'viewDiffWithWorkingFile', repo: this.currentRepo, hash: getCommitHashForFile(file, expandedCommit), filePath: file.newFilePath });
+			sendMessage({ command: 'viewDiffWithWorkingFile', repo: this.currentRepo, hash: getCommitHashForFile(file, expandedCommit, fileElem), filePath: file.newFilePath });
 		};
 
 		const triggerOpenFile = (file: GG.GitFileChange, fileElem: HTMLElement) => {
@@ -3475,7 +3638,7 @@ class GitGraphView {
 			if (expandedCommit === null) return;
 
 			this.cdvUpdateFileState(file, fileElem, true, true);
-			sendMessage({ command: 'openFile', repo: this.currentRepo, hash: getCommitHashForFile(file, expandedCommit), filePath: file.newFilePath });
+			sendMessage({ command: 'openFile', repo: this.currentRepo, hash: getCommitHashForFile(file, expandedCommit, fileElem), filePath: file.newFilePath });
 		};
 
 		addListenerToClass('fileTreeFolder', 'click', (e) => {
@@ -3539,15 +3702,17 @@ class GitGraphView {
 			const fileElem = getFileElemOfEventTarget(e.target);
 			const file = getFileOfFileElem(expandedCommit.fileChanges, fileElem);
 			const commitOrder = this.getExpandedCommitOrder(expandedCommit);
-			const isUncommitted = commitOrder.to === UNCOMMITTED;
+			const selectedCommitFileDiff = getSelectedCommitFileDiff(expandedCommit, fileElem);
+			const targetHash = selectedCommitFileDiff !== null ? selectedCommitFileDiff.toHash : expandedCommit.commitHash;
+			const isUncommitted = selectedCommitFileDiff === null && commitOrder.to === UNCOMMITTED;
 
 			GitGraphView.closeCdvContextMenuIfOpen(expandedCommit);
 			expandedCommit.contextMenuOpen.fileView = parseInt(fileElem.dataset.index!);
 
 			const target: ContextMenuTarget & CommitTarget = {
 				type: TargetType.CommitDetailsView,
-				hash: expandedCommit.commitHash,
-				index: this.commitLookup[expandedCommit.commitHash],
+				hash: targetHash,
+				index: this.commitLookup[targetHash],
 				elem: fileElem
 			};
 			const diffPossible = file.type === GG.GitFileStatus.Untracked || (file.additions !== null && file.deletions !== null);
@@ -3750,6 +3915,14 @@ window.addEventListener('load', () => {
 					dialog.showError('Unable to load Commit Comparison', msg.error, null, null);
 				}
 				break;
+			case 'selectedCommitDetails':
+				if (msg.error === null) {
+					gitGraph.showSelectedCommitDetails(msg.commitHash, msg.commitDetails);
+				} else {
+					gitGraph.closeCommitDetails(true);
+					dialog.showError('Unable to load Selected Commit Details', msg.error, null, null);
+				}
+				break;
 			case 'selectedCommitComparison':
 				if (msg.error === null) {
 					gitGraph.showCommitComparison(msg.commitHash, msg.compareWithHash, msg.fileChanges, gitGraph.createFileTree(msg.fileChanges, null), null, null, false);
@@ -3765,6 +3938,7 @@ window.addEventListener('load', () => {
 				finishOrDisplayError(msg.error, 'Unable to Copy Patch to Clipboard');
 				break;
 			case 'copyAIPrompt':
+				gitGraph.showAIPromptCopyResult(msg.error);
 				finishOrDisplayError(msg.error, 'Unable to Copy AI Prompt to Clipboard');
 				break;
 			case 'copyToClipboard':
@@ -4052,13 +4226,13 @@ window.addEventListener('load', () => {
 
 /* File Tree Methods (for the Commit Details & Comparison Views) */
 
-function generateFileViewHtml(folder: FileTreeFolder, gitFiles: ReadonlyArray<GG.GitFileChange>, lastViewedFile: string | null, fileContextMenuOpen: number, type: GG.FileViewType, isUncommitted: boolean) {
+function generateFileViewHtml(folder: FileTreeFolder, gitFiles: ReadonlyArray<GG.GitFileChange>, lastViewedFile: string | null, lastViewedFileIndex: number | null, fileContextMenuOpen: number, type: GG.FileViewType, isUncommitted: boolean) {
 	return type === GG.FileViewType.List
-		? generateFileListHtml(folder, gitFiles, lastViewedFile, fileContextMenuOpen, isUncommitted)
-		: generateFileTreeHtml(folder, gitFiles, lastViewedFile, fileContextMenuOpen, isUncommitted, true);
+		? generateFileListHtml(folder, gitFiles, lastViewedFile, lastViewedFileIndex, fileContextMenuOpen, isUncommitted)
+		: generateFileTreeHtml(folder, gitFiles, lastViewedFile, lastViewedFileIndex, fileContextMenuOpen, isUncommitted, true);
 }
 
-function generateFileTreeHtml(folder: FileTreeFolder, gitFiles: ReadonlyArray<GG.GitFileChange>, lastViewedFile: string | null, fileContextMenuOpen: number, isUncommitted: boolean, topLevelFolder: boolean): string {
+function generateFileTreeHtml(folder: FileTreeFolder, gitFiles: ReadonlyArray<GG.GitFileChange>, lastViewedFile: string | null, lastViewedFileIndex: number | null, fileContextMenuOpen: number, isUncommitted: boolean, topLevelFolder: boolean): string {
 	const curFolderInfo = topLevelFolder || !initialState.config.commitDetailsView.fileTreeCompactFolders
 		? { folder: folder, name: folder.name, pathSeg: folder.name }
 		: getCurrentFolderInfo(folder, folder.name, folder.name);
@@ -4066,8 +4240,8 @@ function generateFileTreeHtml(folder: FileTreeFolder, gitFiles: ReadonlyArray<GG
 	const children = sortFolderKeys(curFolderInfo.folder).map((key) => {
 		const cur = curFolderInfo.folder.contents[key];
 		return cur.type === 'folder'
-			? generateFileTreeHtml(cur, gitFiles, lastViewedFile, fileContextMenuOpen, isUncommitted, false)
-			: generateFileTreeLeafHtml(cur.name, cur, gitFiles, lastViewedFile, fileContextMenuOpen, isUncommitted);
+			? generateFileTreeHtml(cur, gitFiles, lastViewedFile, lastViewedFileIndex, fileContextMenuOpen, isUncommitted, false)
+			: generateFileTreeLeafHtml(cur.name, cur, gitFiles, lastViewedFile, lastViewedFileIndex, fileContextMenuOpen, isUncommitted);
 	});
 
 	return (topLevelFolder ? '' : '<li' + (curFolderInfo.folder.open ? '' : ' class="closed"') + ' data-pathseg="' + encodeURIComponent(curFolderInfo.pathSeg) + '"><span class="fileTreeFolder' + (curFolderInfo.folder.reviewed ? '' : ' pendingReview') + '" title="./' + escapeHtml(curFolderInfo.folder.folderPath) + '" data-folderpath="' + encodeURIComponent(curFolderInfo.folder.folderPath) + '"><span class="fileTreeFolderIcon">' + (curFolderInfo.folder.open ? SVG_ICONS.openFolder : SVG_ICONS.closedFolder) + '</span><span class="gitFolderName">' + escapeHtml(curFolderInfo.name) + '</span></span>') +
@@ -4083,7 +4257,7 @@ function getCurrentFolderInfo(folder: FileTreeFolder, name: string, pathSeg: str
 		: { folder: folder, name: name, pathSeg: pathSeg };
 }
 
-function generateFileListHtml(folder: FileTreeFolder, gitFiles: ReadonlyArray<GG.GitFileChange>, lastViewedFile: string | null, fileContextMenuOpen: number, isUncommitted: boolean) {
+function generateFileListHtml(folder: FileTreeFolder, gitFiles: ReadonlyArray<GG.GitFileChange>, lastViewedFile: string | null, lastViewedFileIndex: number | null, fileContextMenuOpen: number, isUncommitted: boolean) {
 	const sortLeaves = (folder: FileTreeFolder, folderPath: string) => {
 		let keys = sortFolderKeys(folder);
 		let items: { relPath: string, leaf: FileTreeLeaf }[] = [];
@@ -4101,12 +4275,12 @@ function generateFileListHtml(folder: FileTreeFolder, gitFiles: ReadonlyArray<GG
 	let sortedLeaves = sortLeaves(folder, '');
 	let html = '';
 	for (let i = 0; i < sortedLeaves.length; i++) {
-		html += generateFileTreeLeafHtml(sortedLeaves[i].relPath, sortedLeaves[i].leaf, gitFiles, lastViewedFile, fileContextMenuOpen, isUncommitted);
+		html += generateFileTreeLeafHtml(sortedLeaves[i].relPath, sortedLeaves[i].leaf, gitFiles, lastViewedFile, lastViewedFileIndex, fileContextMenuOpen, isUncommitted);
 	}
 	return '<ul class="fileTreeFolderContents">' + html + '</ul>';
 }
 
-function generateFileTreeLeafHtml(name: string, leaf: FileTreeLeaf, gitFiles: ReadonlyArray<GG.GitFileChange>, lastViewedFile: string | null, fileContextMenuOpen: number, isUncommitted: boolean) {
+function generateFileTreeLeafHtml(name: string, leaf: FileTreeLeaf, gitFiles: ReadonlyArray<GG.GitFileChange>, lastViewedFile: string | null, lastViewedFileIndex: number | null, fileContextMenuOpen: number, isUncommitted: boolean) {
 	let encodedName = encodeURIComponent(name), escapedName = escapeHtml(name);
 	if (leaf.type === 'file') {
 		const fileTreeFile = gitFiles[leaf.index];
@@ -4114,11 +4288,12 @@ function generateFileTreeLeafHtml(name: string, leaf: FileTreeLeaf, gitFiles: Re
 		const diffPossible = fileTreeFile.multiCommitSelection !== true && (fileTreeFile.type === GG.GitFileStatus.Untracked || textFile);
 		const changeTypeMessage = GIT_FILE_CHANGE_TYPES[fileTreeFile.type] + (fileTreeFile.type === GG.GitFileStatus.Renamed ? ' (' + escapeHtml(fileTreeFile.oldFilePath) + ' → ' + escapeHtml(fileTreeFile.newFilePath) + ')' : '');
 		const conflictMarker = fileTreeFile.conflict === true ? '<span class="fileTreeFileConflict" title="File has merge conflicts">!</span>' : '';
-		return '<li data-pathseg="' + encodedName + '"><span class="fileTreeFileRecord' + (leaf.index === fileContextMenuOpen ? ' ' + CLASS_CONTEXT_MENU_ACTIVE : '') + '" data-index="' + leaf.index + '"><span class="fileTreeFile' + (diffPossible ? ' gitDiffPossible' : '') + (leaf.reviewed ? '' : ' ' + CLASS_PENDING_REVIEW) + '" title="' + (diffPossible ? 'Click to View Diff' : 'Unable to View Diff' + (fileTreeFile.type !== GG.GitFileStatus.Deleted ? ' (this is a binary file)' : '')) + ' • ' + changeTypeMessage + '"><span class="fileTreeFileIcon">' + SVG_ICONS.file + '</span><span class="gitFileName ' + fileTreeFile.type + '">' + escapedName + '</span></span>' +
+		const lastViewed = lastViewedFileIndex !== null ? leaf.index === lastViewedFileIndex : fileTreeFile.newFilePath === lastViewedFile;
+		return '<li data-pathseg="' + encodedName + '"><span class="fileTreeFileRecord' + (leaf.index === fileContextMenuOpen ? ' ' + CLASS_CONTEXT_MENU_ACTIVE : '') + (lastViewed ? ' cdvLastFileViewedRecord' : '') + '" data-index="' + leaf.index + '"><span class="fileTreeFile' + (diffPossible ? ' gitDiffPossible' : '') + (leaf.reviewed ? '' : ' ' + CLASS_PENDING_REVIEW) + '" title="' + (diffPossible ? 'Click to View Diff' : 'Unable to View Diff' + (fileTreeFile.type !== GG.GitFileStatus.Deleted ? ' (this is a binary file)' : '')) + ' • ' + changeTypeMessage + '"><span class="fileTreeFileIcon">' + SVG_ICONS.file + '</span><span class="gitFileName ' + fileTreeFile.type + '">' + escapedName + '</span></span>' +
 			conflictMarker +
 			(initialState.config.enhancedAccessibility ? '<span class="fileTreeFileType" title="' + changeTypeMessage + '">' + fileTreeFile.type + '</span>' : '') +
 			(fileTreeFile.type !== GG.GitFileStatus.Added && fileTreeFile.type !== GG.GitFileStatus.Untracked && fileTreeFile.type !== GG.GitFileStatus.Deleted && textFile ? '<span class="fileTreeFileAddDel">(<span class="fileTreeFileAdd" title="' + fileTreeFile.additions + ' addition' + (fileTreeFile.additions !== 1 ? 's' : '') + '">+' + fileTreeFile.additions + '</span>|<span class="fileTreeFileDel" title="' + fileTreeFile.deletions + ' deletion' + (fileTreeFile.deletions !== 1 ? 's' : '') + '">-' + fileTreeFile.deletions + '</span>)</span>' : '') +
-			(fileTreeFile.newFilePath === lastViewedFile ? '<span id="cdvLastFileViewed" title="Last File Viewed">' + SVG_ICONS.eyeOpen + '</span>' : '') +
+			(lastViewed ? '<span id="cdvLastFileViewed" title="Last File Viewed">' + SVG_ICONS.eyeOpen + '</span>' : '') +
 			'<span class="copyGitFile fileTreeFileAction" title="Copy Absolute File Path to Clipboard">' + SVG_ICONS.copy + '</span>' +
 			(fileTreeFile.type !== GG.GitFileStatus.Deleted
 				? (diffPossible && !isUncommitted ? '<span class="viewGitFileAtRevision fileTreeFileAction" title="View File at this Revision">' + SVG_ICONS.commit + '</span>' : '') +
@@ -4138,6 +4313,18 @@ function alterFileTreeFolderOpen(folder: FileTreeFolder, folderPath: string, ope
 			if (i === path.length - 1) cur.open = open;
 		} else {
 			return;
+		}
+	}
+}
+
+function offsetFileTreeIndexes(folder: FileTreeFolder, offset: number) {
+	const keys = Object.keys(folder.contents);
+	for (let i = 0; i < keys.length; i++) {
+		const node = folder.contents[keys[i]];
+		if (node.type === 'folder') {
+			offsetFileTreeIndexes(node, offset);
+		} else if (node.type === 'file') {
+			(<{ index: number }>node).index += offset;
 		}
 	}
 }

@@ -30,11 +30,14 @@ declare global {
 		diffFromHash: string | null;
 		diffToHash: string | null;
 		commitDetails: GG.GitCommitDetails | null;
+		selectedCommitDetails: ReadonlyArray<GG.GitCommitDetails> | null;
+		selectedCommitFileDiffs: ReadonlyArray<GG.CommitSelectionComparison> | null;
 		fileChanges: ReadonlyArray<GG.GitFileChange> | null;
 		fileTree: FileTreeFolder | null;
 		avatar: string | null;
 		codeReview: GG.CodeReview | null;
 		lastViewedFile: string | null;
+		lastViewedFileIndex: number | null;
 		loading: boolean;
 		scrollTop: {
 			summary: number,
