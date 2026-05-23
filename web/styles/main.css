@@ -347,6 +347,10 @@ code{
 #cdvSummaryActions button:hover{
 	background-color:rgba(128,128,128,0.22);
 }
+#cdvSummaryActions button.copying{
+	border-color:rgba(91,141,239,0.65);
+	background-color:rgba(91,141,239,0.18);
+}
 #cdvSummaryActions button.copied{
 	border-color:rgba(0,144,40,0.55);
 	background-color:rgba(0,144,40,0.18);
@@ -529,6 +533,8 @@ code{
 }
 .cdvSelectedCommitFileGroup{
 	margin:6px 0 16px;
+	padding-left:8px;
+	border-left:3px solid rgba(128,128,128,0.45);
 }
 .cdvSelectedCommitFileHeader{
 	margin-bottom:6px;
@@ -541,6 +547,24 @@ code{
 .cdvSelectedCommitFileEmpty{
 	padding-left:2px;
 	opacity:0.75;
+}
+.cdvSelectedCommitFileGroup.toneFeat{
+	border-left-color:rgba(40,160,120,0.9);
+}
+.cdvSelectedCommitFileGroup.toneFix{
+	border-left-color:rgba(220,80,80,0.9);
+}
+.cdvSelectedCommitFileGroup.toneTest{
+	border-left-color:rgba(210,160,40,0.9);
+}
+.cdvSelectedCommitFileGroup.toneRefactor{
+	border-left-color:rgba(150,110,220,0.9);
+}
+.cdvSelectedCommitFileGroup.toneDocs{
+	border-left-color:rgba(80,150,220,0.9);
+}
+.cdvSelectedCommitFileGroup.toneChore{
+	border-left-color:rgba(150,150,150,0.9);
 }
 
 #cdvLoading{
@@ -732,6 +756,7 @@ svg.openFolderIcon, svg.closedFolderIcon, svg.fileIcon{
 }
 #commitTable tr.commit.rangeSelected{
 	background-color:rgba(64,128,255,0.18);
+	box-shadow:inset 3px 0 0 rgba(91,141,239,0.9);
 }
 #commitTable tr.commit.rangeSelected:hover{
 	background-color:rgba(64,128,255,0.28);
@@ -745,7 +770,7 @@ svg.openFolderIcon, svg.closedFolderIcon, svg.fileIcon{
 	align-items:center;
 	gap:4px;
 	padding:4px;
-	border:1px solid rgba(128,128,128,0.45);
+	border:1px solid rgba(91,141,239,0.45);
 	border-radius:4px;
 	background-color:var(--vscode-editor-background);
 	box-shadow:0 2px 8px rgba(0,0,0,0.25);
@@ -757,8 +782,9 @@ svg.openFolderIcon, svg.closedFolderIcon, svg.fileIcon{
 	padding:0 6px;
 	font-size:12px;
 	line-height:24px;
-	color:var(--vscode-descriptionForeground);
+	color:var(--vscode-editor-foreground);
 	white-space:nowrap;
+	border-left:3px solid rgba(91,141,239,0.9);
 }
 .rangeSelectionToolbarBtn{
 	display:flex;
@@ -782,6 +808,21 @@ svg.openFolderIcon, svg.closedFolderIcon, svg.fileIcon{
 }
 .rangeSelectionToolbarBtn:hover{
 	background-color:rgba(128,128,128,0.2);
+}
+.rangeSelectionToolbarBtn.compareAction{
+	border-color:rgba(91,141,239,0.55);
+	background-color:rgba(91,141,239,0.12);
+}
+.rangeSelectionToolbarBtn.headAction{
+	border-color:rgba(150,110,220,0.55);
+	background-color:rgba(150,110,220,0.12);
+}
+.rangeSelectionToolbarBtn.patchAction, .rangeSelectionToolbarBtn.copyAction{
+	border-color:rgba(40,160,120,0.55);
+	background-color:rgba(40,160,120,0.12);
+}
+.rangeSelectionToolbarBtn.clearAction{
+	border-color:rgba(220,80,80,0.45);
 }
 .rangeSelectionToolbarBtn svg{
 	width:14px;

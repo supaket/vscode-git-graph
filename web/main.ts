@@ -39,6 +39,7 @@ class GitGraphView {
 	private rangeSelectionEndIdx: number | null = null;
 	private rangeSelectionIndexes: number[] = [];
 	private rangeSelectionDiffToHash: string | null = null;
+	private compareReturnSelectionIndexes: number[] = [];
 	private aiPromptCopyFeedbackTo: number | null = null;
 	private maxCommits: number;
 	private scrollTop = 0;
@@ -2692,12 +2693,12 @@ class GitGraphView {
 		this.rangeSelectionToolbarElem.innerHTML =
 			'<span class="rangeSelectionToolbarCount">' + hashes.length + ' commit' + (hashes.length === 1 ? '' : 's') + '</span>' +
 			(bounds.contiguous
-				? '<button class="rangeSelectionToolbarBtn" data-action="workingTree" title="Compare selected range with Working Tree">' + SVG_ICONS.commit + '<span>Working Tree</span></button>' +
-					'<button class="rangeSelectionToolbarBtn" data-action="head" title="Compare selected range with HEAD">' + SVG_ICONS.commit + '<span>HEAD</span></button>' +
-					(this.rangeSelectionDiffToHash !== null ? '<button class="rangeSelectionToolbarBtn" data-action="copyPatch" title="Copy selected range as patch">' + SVG_ICONS.copy + '<span>Patch</span></button>' : '')
+				? '<button class="rangeSelectionToolbarBtn compareAction" data-action="workingTree" title="Compare selected range with Working Tree">' + SVG_ICONS.commit + '<span>Working Tree</span></button>' +
+					'<button class="rangeSelectionToolbarBtn headAction" data-action="head" title="Compare selected range with HEAD">' + SVG_ICONS.commit + '<span>HEAD</span></button>' +
+					(this.rangeSelectionDiffToHash !== null ? '<button class="rangeSelectionToolbarBtn patchAction" data-action="copyPatch" title="Copy selected range as patch">' + SVG_ICONS.copy + '<span>Patch</span></button>' : '')
 				: '') +
-			'<button class="rangeSelectionToolbarBtn iconOnly" data-action="copy" title="Copy selected commit hashes">' + SVG_ICONS.copy + '</button>' +
-			'<button class="rangeSelectionToolbarBtn iconOnly" data-action="clear" title="Clear selection">' + SVG_ICONS.close + '</button>';
+			'<button class="rangeSelectionToolbarBtn copyAction iconOnly" data-action="copy" title="Copy selected commit hashes">' + SVG_ICONS.copy + '</button>' +
+			'<button class="rangeSelectionToolbarBtn clearAction iconOnly" data-action="clear" title="Clear selection">' + SVG_ICONS.close + '</button>';
 		this.rangeSelectionToolbarElem.classList.add(CLASS_ACTIVE);
 
 		const buttons = this.rangeSelectionToolbarElem.querySelectorAll('.rangeSelectionToolbarBtn');
@@ -2821,7 +2822,9 @@ class GitGraphView {
 	}
 
 	private selectRangeIndexesForWorkingTreeCompare(startIdx: number, endIdx: number) {
+		const returnSelectionIndexes = this.getSelectedRangeIndexes();
 		this.clearRangeSelection();
+		this.compareReturnSelectionIndexes = returnSelectionIndexes;
 
 		const diffBase = this.getRangeDiffBase(startIdx, endIdx);
 		if (diffBase === null) return;
@@ -2848,7 +2851,9 @@ class GitGraphView {
 	}
 
 	private selectRangeIndexesForHeadCompare(startIdx: number, endIdx: number) {
+		const returnSelectionIndexes = this.getSelectedRangeIndexes();
 		this.clearRangeSelection();
+		this.compareReturnSelectionIndexes = returnSelectionIndexes;
 
 		const diffBase = this.getRangeDiffBase(startIdx, endIdx);
 		if (diffBase === null) return;
@@ -2932,12 +2937,14 @@ class GitGraphView {
 
 		button.innerHTML = (copied ? SVG_ICONS.check : SVG_ICONS.copy) + label;
 		button.classList.toggle('copied', copied);
+		button.classList.toggle('copying', label === 'Copying...');
 		if (copied) {
 			this.aiPromptCopyFeedbackTo = window.setTimeout(() => {
 				const currentButton = document.getElementById('cdvAIPrompt');
 				if (currentButton !== null) {
 					currentButton.innerHTML = SVG_ICONS.copy + 'AI Prompt';
 					currentButton.classList.remove('copied');
+					currentButton.classList.remove('copying');
 				}
 				this.aiPromptCopyFeedbackTo = null;
 			}, 1400);
@@ -3079,14 +3086,18 @@ class GitGraphView {
 	public closeCommitComparison(saveAndRequestCommitDetails: boolean) {
 		const expandedCommit = this.expandedCommit;
 		if (expandedCommit === null || expandedCommit.compareWithHash === null) return;
-		this.clearRangeSelection();
+		const returnSelectionIndexes = this.compareReturnSelectionIndexes.slice(0);
+		this.compareReturnSelectionIndexes = [];
+		if (returnSelectionIndexes.length === 0) this.clearRangeSelection();
 
 		if (expandedCommit.compareWithElem !== null) {
 			expandedCommit.compareWithElem.classList.remove(CLASS_COMMIT_DETAILS_OPEN);
 		}
 		GitGraphView.closeCdvContextMenuIfOpen(expandedCommit);
 		if (saveAndRequestCommitDetails) {
-			if (expandedCommit.commitElem !== null) {
+			if (returnSelectionIndexes.length > 1) {
+				this.loadSelectedCommitDetails(returnSelectionIndexes[0], returnSelectionIndexes);
+			} else if (expandedCommit.commitElem !== null) {
 				this.saveExpandedCommitLoading(expandedCommit.index, expandedCommit.commitHash, expandedCommit.commitElem, null, null);
 				this.renderCommitDetailsView(false);
 				this.requestCommitDetails(expandedCommit.commitHash, false);
@@ -3155,7 +3166,7 @@ class GitGraphView {
 		let html = '<div class="cdvSelectedCommitFiles">', fileOffset = 0;
 		for (let i = 0; i < selectedCommitDetails.length; i++) {
 			const commitDetails = selectedCommitDetails[i];
-			html += '<div class="cdvSelectedCommitFileGroup"><div class="cdvSelectedCommitFileHeader">' + escapeHtml(commitDetails.hash) + '</div>';
+			html += '<div class="cdvSelectedCommitFileGroup ' + this.getCommitToneClass(commitDetails) + '"><div class="cdvSelectedCommitFileHeader">' + escapeHtml(commitDetails.hash) + '</div>';
 			if (commitDetails.fileChanges.length === 0) {
 				html += '<div class="cdvSelectedCommitFileEmpty">No file changes.</div>';
 			} else {
@@ -3167,6 +3178,17 @@ class GitGraphView {
 			html += '</div>';
 		}
 		return html + '</div>';
+	}
+
+	private getCommitToneClass(commitDetails: GG.GitCommitDetails) {
+		const subject = commitDetails.body.split('\n')[0].toLowerCase();
+		if (/^(fix|bugfix|hotfix)(\(.+\))?:/.test(subject)) return 'toneFix';
+		if (/^(feat|feature)(\(.+\))?:/.test(subject)) return 'toneFeat';
+		if (/^(test|tests)(\(.+\))?:/.test(subject)) return 'toneTest';
+		if (/^refactor(\(.+\))?:/.test(subject)) return 'toneRefactor';
+		if (/^docs?(\(.+\))?:/.test(subject)) return 'toneDocs';
+		if (/^chore(\(.+\))?:/.test(subject)) return 'toneChore';
+		return 'toneDefault';
 	}
 
 
